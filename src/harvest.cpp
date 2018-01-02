@@ -102,81 +102,45 @@ void Harvest::compute(const double* x, const int x_length, const int fs,
   delete[] basic_temporal_positions;
 }
 
-
-//-----------------------------------------------------------------------------
-// Since the waveform of beginning and ending after decimate include noise,
-// the input waveform is extended. This is the processing for the
-// compatibility with MATLAB version.
-//-----------------------------------------------------------------------------
-void Harvest::getWaveformAndSpectrumSub(const double *x, const int x_length,
-					const int y_length, const double actual_fs,
-					const int decimation_ratio,
-					double *y)
-{
-  if (decimation_ratio == 1) {
-    copy(x, x + x_length, y);
-    return;
-  }
-
-  int lag = static_cast<int>(ceil(140.0 / decimation_ratio) * decimation_ratio);
-  int new_x_length = x_length + lag * 2;
-  double *new_y = new double[new_x_length]();
-  double *new_x = new double[new_x_length];
-  
-  for (int i = 0; i < lag; ++i) { new_x[i] = x[0]; }
-  copy(x, x + x_length, new_x + lag);
-  for (int i = lag + x_length; i < new_x_length; ++i) { new_x[i] = x[x_length - 1]; }
-
-  decimate(new_x, new_x_length, decimation_ratio, new_y);
-  for (int i = 0; i < y_length; ++i) { y[i] = new_y[lag / decimation_ratio + i]; }
-
-  delete[] new_x;
-  delete[] new_y;
-}
-
 //-----------------------------------------------------------------------------
 // GetWaveformAndSpectrum() calculates the downsampled signal and its spectrum
 //-----------------------------------------------------------------------------
-void Harvest::getWaveformAndSpectrum(const double *x, const int x_length,
-				     const int y_length, const double actual_fs,
-				     const int fft_size, const int decimation_ratio,
-				     double *y, fft_complex *y_spectrum)
+void Harvest::getWaveformAndSpectrum(const int fft_size, const int decimation_ratio,
+				     fft_complex *y_spectrum)
 {
-  
-  // Initialization
-  // memset(y, 0, sizeof(double) * fft_size); // initialized before this function
-
   // Processing for the compatibility with MATLAB version
-  getWaveformAndSpectrumSub(x, x_length, y_length, actual_fs,
-			    decimation_ratio, y);
+  if (decimation_ratio == 1) {
+    copy(x_, x_ + x_length_, y_);
+    for_each(y_ + x_length_, y_ + y_length_, [](double &v){v = 0;});
+  }
+  else {
+    int lag = static_cast<int>(ceil(140.0 / decimation_ratio) * decimation_ratio);
+    int new_x_length = x_length_ + lag * 2;
+    double *new_y = new double[new_x_length]();
+    double *new_x = new double[new_x_length];
+    
+    for_each(new_x, new_x + lag, [&](double &v){v = x_[0];});
+    copy(x_, x_ + x_length_, new_x + lag);
+    for_each(new_x + lag + x_length_, new_x + new_x_length, [&](double &v){v = x_[x_length_ - 1];});
+
+    decimate(new_x, new_x_length, decimation_ratio, new_y);
+    for (int i = 0; i < y_length_; ++i) { y_[i] = new_y[lag / decimation_ratio + i]; }
+
+    delete[] new_x;
+    delete[] new_y;
+  }
 
   // Removal of the DC component (y = y - mean value of y)
-  // double mean_y = 0.0;
-  // for (int i = 0; i < y_length; ++i) mean_y += y[i];
-  double mean_y = accumulate(y, y + y_length, 0);
-  mean_y /= y_length;
-  for (int i = 0; i < y_length; ++i) y[i] -= mean_y;
-  for (int i = y_length; i < fft_size; ++i) y[i] = 0.0;
+  double mean_y = accumulate(y_, y_ + y_length_, 0);
+  mean_y /= y_length_;
+  for_each(y_, y_ + y_length_, [&](double &v){v -= mean_y;});
+  for_each(y_ + y_length_, y_ + fft_size, [](double &v){v = 0.0;});
 
-  fft_plan forwardFFT = fft_plan_dft_r2c_1d(fft_size, y, y_spectrum, FFT_ESTIMATE);
+  fft_plan forwardFFT = fft_plan_dft_r2c_1d(fft_size, y_, y_spectrum, FFT_ESTIMATE);
   fft_execute(forwardFFT);
 
   fft_destroy_plan(forwardFFT);
 }
-
-//-----------------------------------------------------------------------------
-// DestroyZeroCrossings() frees the memory of array in the struct
-//-----------------------------------------------------------------------------
-// static void DestroyZeroCrossings(ZeroCrossings *zero_crossings) {
-//   delete[] zero_crossings.negative_interval_locations;
-//   delete[] zero_crossings.positive_interval_locations;
-//   delete[] zero_crossings.peak_interval_locations;
-//   delete[] zero_crossings.dip_interval_locations;
-//   delete[] zero_crossings.negative_intervals;
-//   delete[] zero_crossings.positive_intervals;
-//   delete[] zero_crossings.peak_intervals;
-//   delete[] zero_crossings.dip_intervals;
-// }
 
 
 //-----------------------------------------------------------------------------
@@ -301,9 +265,9 @@ double Harvest::selectBestF0(const double reference_f0, const double *f0_candida
 // ExtendF0() : The Hand erasing the Space.
 // The subfunction of Extend().
 //-----------------------------------------------------------------------------
-int Harvest::extendF0(const double *f0, const int f0_length, const int origin,
+int Harvest::extendF0(double *extended_f0, const int f0_length, const int origin,
 		      const int last_point, const int shift, const double * const *f0_candidates,
-		      const int number_of_candidates, const double allowed_range, double *extended_f0)
+		      const int number_of_candidates, const double allowed_range)
 {
   int threshold = 4;
   double tmp_f0 = extended_f0[origin];
@@ -354,43 +318,23 @@ inline void Harvest::swapArray(const int index1, const int index2, double **f0, 
   boundary[index2 * 2 + 1] = tmp_index;
 }
 
-// int Harvest::extendSub(const double * const *extended_f0,
-// 		     const int *boundary_list, int number_of_sections,
-// 		     double **selected_extended_f0, int *selected_boundary_list) {
-//   double threshold = 2200.0;
-//   int count = 0;
-//   double mean_f0 = 0.0;
-//   int st, ed;
-//   for (int i = 0; i < number_of_sections; ++i) {
-//     st = boundary_list[i * 2];
-//     ed = boundary_list[i * 2 + 1];
-//     for (int j = st; j < ed; ++j) mean_f0 += extended_f0[i][j];
-//     mean_f0 /= ed - st;
-//     if (threshold / mean_f0 < ed - st)
-//       swapArray(count++, i, selected_extended_f0, selected_boundary_list);
-//   }
-//   return count;
-// }
-
 //-----------------------------------------------------------------------------
 // Extend() : The Hand erasing the Space.
 //-----------------------------------------------------------------------------
-int Harvest::extend(const double * const *multi_channel_f0,
-		    const int number_of_sections, const int f0_length, const int *boundary_list,
-		    const double * const *f0_candidates, const int number_of_candidates,
-		    const double allowed_range, double **extended_f0, int *shifted_boundary_list)
+int Harvest::extend(double **extended_f0, const int number_of_sections, const int f0_length,
+		    int *boundary_list, const double * const *f0_candidates,
+		    const int number_of_candidates, const double allowed_range)
 {
   int threshold = 100;
   for (int i = 0; i < number_of_sections; ++i) {
-    shifted_boundary_list[i * 2 + 1] =
-      extendF0(multi_channel_f0[i],
-	       f0_length, boundary_list[i * 2 + 1],
+    boundary_list[i * 2 + 1] =
+      extendF0(extended_f0[i], f0_length, boundary_list[i * 2 + 1],
 	       MyMinInt(f0_length - 2, boundary_list[i * 2 + 1] + threshold), 1,
-	       f0_candidates, number_of_candidates, allowed_range, extended_f0[i]);
-    shifted_boundary_list[i * 2] =
-      extendF0(multi_channel_f0[i], f0_length,
+	       f0_candidates, number_of_candidates, allowed_range);
+    boundary_list[i * 2] =
+      extendF0(extended_f0[i], f0_length,
 	       boundary_list[i * 2], MyMaxInt(1, boundary_list[i * 2] - threshold), -1,
-	       f0_candidates, number_of_candidates, allowed_range, extended_f0[i]);
+	       f0_candidates, number_of_candidates, allowed_range);
   }
 
   // extendSub
@@ -399,36 +343,16 @@ int Harvest::extend(const double * const *multi_channel_f0,
   double mean_f0 = 0.0;
   int st, ed;
   for (int i = 0; i < number_of_sections; ++i) {
-    st = shifted_boundary_list[i * 2];
-    ed = shifted_boundary_list[i * 2 + 1];
-    for (int j = st; j < ed; ++j) mean_f0 += multi_channel_f0[i][j];
+    st = boundary_list[i * 2];
+    ed = boundary_list[i * 2 + 1];
+    for (int j = st; j < ed; ++j) mean_f0 += extended_f0[i][j];
     mean_f0 /= ed - st;
     if (threshold2 / mean_f0 < ed - st)
-      swapArray(count++, i, extended_f0, shifted_boundary_list);
+      swapArray(count++, i, extended_f0, boundary_list);
   }
-
-  // return extendSub(multi_channel_f0, shifted_boundary_list,
-  // 		   number_of_sections, extended_f0, shifted_boundary_list);
+  
   return count;
 }
-
-//-----------------------------------------------------------------------------
-// Indices are sorted.
-//-----------------------------------------------------------------------------
-// static void MakeSortedOrder(const int *boundary_list, int number_of_sections,
-// 			    int *order) {
-//   for (int i = 0; i < number_of_sections; ++i) order[i] = i;
-//   int tmp;
-//   for (int i = 1; i < number_of_sections; ++i)
-//     for (int j = i - 1; j >= 0; --j)
-//       if (boundary_list[order[j] * 2] > boundary_list[order[i] * 2]) {
-// 	tmp = order[i];
-// 	order[i] = order[j];
-// 	order[j] = tmp;
-//       } else {
-// 	break;
-//       }
-// }
 
 //-----------------------------------------------------------------------------
 // Serach the highest score with the candidate F0.
@@ -445,18 +369,17 @@ inline double Harvest::searchScore(const double f0, const double *f0_candidates,
 //-----------------------------------------------------------------------------
 // Subfunction of MergeF0()
 //-----------------------------------------------------------------------------
-int Harvest::mergeF0Sub(const double *f0_1, const int f0_length, const int st1, const int ed1,
+int Harvest::mergeF0Sub(double *merged_f0, const int f0_length, const int st1, const int ed1,
 			const double *f0_2, const int st2, const int ed2,
 			const double * const *f0_candidates,
-			const double * const *f0_scores, const int number_of_candidates,
-			double *merged_f0)
+			const double * const *f0_scores, const int number_of_candidates)
 {
   if (st1 <= st2 && ed1 >= ed2) return ed1;
 
   double score1 = 0.0;
   double score2 = 0.0;
   for (int i = st2; i <= ed1; ++i) {
-    score1 += searchScore(f0_1[i], f0_candidates[i], f0_scores[i],
+    score1 += searchScore(merged_f0[i], f0_candidates[i], f0_scores[i],
 			  number_of_candidates);
     score2 += searchScore(f0_2[i], f0_candidates[i], f0_scores[i],
 			  number_of_candidates);
@@ -485,29 +408,24 @@ void Harvest::mergeF0(const double * const *multi_channel_f0, int *boundary_list
   generate(order, order + number_of_channels, [&]{ return n++; });
   sort(order, order + number_of_channels,
        [&](int i1, int i2) { return boundary_list[i1 * 2] <= boundary_list[i2 * 2]; } );
-  
-  // MakeSortedOrder(boundary_list, number_of_channels, order);
 
   copy(multi_channel_f0[0], multi_channel_f0[0] + f0_length, merged_f0);
 
   for (int i = 1; i < number_of_channels; ++i) {
+    int index1 = boundary_list[order[i] * 2];
+    int index2 = boundary_list[order[i] * 2 + 1];
+    
     if (boundary_list[order[i] * 2] - boundary_list[1] > 0) {
-      // for (int j = boundary_list[order[i] * 2];
-      // 	   j <= boundary_list[order[i] * 2 + 1]; ++j)
-      // 	merged_f0[j] = multi_channel_f0[order[i]][j];
-      int index1 = boundary_list[order[i] * 2];
-      int index2 = boundary_list[order[i] * 2 + 1];
       copy(multi_channel_f0[order[i]] + index1,
 	   multi_channel_f0[order[i]] + index2 + 1,
-	   merged_f0);
+	   merged_f0 + index1);
       boundary_list[0] = index1;
       boundary_list[1] = index2;
     } else {
       boundary_list[1] =
 	mergeF0Sub(merged_f0, f0_length, boundary_list[0], boundary_list[1],
-		   multi_channel_f0[order[i]], boundary_list[order[i] * 2],
-		   boundary_list[order[i] * 2 + 1], f0_candidates, f0_scores,
-		   number_of_candidates, merged_f0);
+		   multi_channel_f0[order[i]], index1, index2,
+		   f0_candidates, f0_scores, number_of_candidates);
     }
   }
 
@@ -554,8 +472,15 @@ void Harvest::fixStep3(const double *f0_step2, const int f0_length,
 
   int number_of_channels =
     extend(multi_channel_f0, number_of_boundaries / 2, f0_length,
-	   boundary_list, f0_candidates, number_of_candidates, allowed_range,
-	   multi_channel_f0, boundary_list);
+	   boundary_list, f0_candidates, number_of_candidates, allowed_range);
+
+  double sum1 = 0;
+  for (int i = 0; i < number_of_boundaries / 2; i++) {
+    for (int j = 0; j < f0_length; j++) {
+      sum1 += multi_channel_f0[i][j];
+    }
+  }
+  cout << "multi f0 sum2: " << sum1 << endl;
   
   mergeF0(multi_channel_f0, boundary_list, number_of_channels, f0_length,
 	  f0_candidates, f0_scores, number_of_candidates, f0_step3);
@@ -599,22 +524,35 @@ void Harvest::fixStep4(const double *f0_step3, const int f0_length, const int th
 //-----------------------------------------------------------------------------
 // FixF0Contour() obtains the likely F0 contour.
 //-----------------------------------------------------------------------------
-void Harvest::fixF0Contour(const double * const *f0_candidates,
-			   const double * const *f0_scores,
-			   const int f0_length, const int number_of_candidates,
-			   double *best_f0_contour)
+void Harvest::fixF0Contour(double *best_f0_contour)
 {
-  double *tmp_f0_contour1 = new double[f0_length];
-  double *tmp_f0_contour2 = new double[f0_length];
+  double *tmp_f0_contour1 = new double[f0_length_];
+  double *tmp_f0_contour2 = new double[f0_length_];
 
   // These parameters are optimized by speech databases.
-  searchF0Base(f0_candidates, f0_scores, f0_length,
-	       number_of_candidates, tmp_f0_contour1);
-  fixStep1(tmp_f0_contour1, f0_length, 0.008, tmp_f0_contour2);
-  fixStep2(tmp_f0_contour2, f0_length, 6, tmp_f0_contour1);
-  fixStep3(tmp_f0_contour1, f0_length, number_of_candidates, f0_candidates,
-	   0.18, f0_scores, tmp_f0_contour2);
-  fixStep4(tmp_f0_contour2, f0_length, 9, best_f0_contour);
+  searchF0Base(f0_candidates_, f0_candidates_score_, f0_length_,
+	       number_of_candidates_, tmp_f0_contour1);
+  fixStep1(tmp_f0_contour1, f0_length_, 0.008, tmp_f0_contour2);
+
+  double sum1 = 0, sum2 = 0;
+  for (int i = 0; i < f0_length_; i++) {
+    sum1 += tmp_f0_contour1[i];
+    sum2 += tmp_f0_contour2[i];
+  }
+  cout << "tmp_f0_contour sum: " << sum1 << ", " << sum2 << endl;
+  
+  fixStep2(tmp_f0_contour2, f0_length_, 6, tmp_f0_contour1);
+  fixStep3(tmp_f0_contour1, f0_length_, number_of_candidates_, f0_candidates_,
+	   0.18, f0_candidates_score_, tmp_f0_contour2);
+
+  sum1 = 0; sum2 = 0;
+  for (int i = 0; i < f0_length_; i++) {
+    sum1 += tmp_f0_contour1[i];
+    sum2 += tmp_f0_contour2[i];
+  }
+  cout << "tmp_f0_contour sum: " << sum1 << ", " << sum2 << endl;
+  
+  fixStep4(tmp_f0_contour2, f0_length_, 9, best_f0_contour);
 
   delete[] tmp_f0_contour1;
   delete[] tmp_f0_contour2;
@@ -654,17 +592,17 @@ void Harvest::filteringF0(const double *a, const double *b, double *x,
 //-----------------------------------------------------------------------------
 // SmoothF0Contour() uses the zero-lag Butterworth filter for smoothing.
 //-----------------------------------------------------------------------------
-void Harvest::smoothF0Contour(const double *f0, const int f0_length, double *smoothed_f0)
+void Harvest::smoothF0Contour(const double *f0, double *smoothed_f0)
 {
   const double b[2] =
     { 0.0078202080334971724, 0.015640416066994345 };
   const double a[2] =
     { 1.7347257688092754, -0.76600660094326412 };
   int lag = 300;
-  int new_f0_length = f0_length + lag * 2;
+  int new_f0_length = f0_length_ + lag * 2;
   
   double *f0_contour = new double[new_f0_length]();
-  copy(f0, f0 + f0_length, f0_contour + lag);
+  copy(f0, f0 + f0_length_, f0_contour + lag);
   
   int *boundary_list = new int[new_f0_length];
   int number_of_boundaries = getBoundaryList(f0_contour, new_f0_length, boundary_list);
@@ -689,66 +627,45 @@ void Harvest::smoothF0Contour(const double *f0, const int f0_length, double *smo
   delete[] boundary_list;
 }
 
-// static void RemoveUnreliableCandidatesSub(int i, int j,
-// 					  const double * const *tmp_f0_candidates, int number_of_candidates,
-// 					  double **f0_candidates, double **f0_scores) {
-//   double reference_f0 = f0_candidates[i][j];
-//   double error1, error2, min_error;
-//   double threshold = 0.05;
-//   if (reference_f0 == 0) return;
-//   SelectBestF0(reference_f0, tmp_f0_candidates[i + 1],
-// 	       number_of_candidates, 1.0, &error1);
-//   SelectBestF0(reference_f0, tmp_f0_candidates[i - 1],
-// 	       number_of_candidates, 1.0, &error2);
-//   min_error = MyMinDouble(error1, error2);
-//   if (min_error <= threshold) return;
-//   f0_candidates[i][j] = 0;
-//   f0_scores[i][j] = 0;
-// }
-
 //-----------------------------------------------------------------------------
 // RemoveUnreliableCandidates().
 //-----------------------------------------------------------------------------
-void Harvest::removeUnreliableCandidates(const int f0_length, const int number_of_candidates,
-					 double **f0_candidates, double **f0_scores)
+void Harvest::removeUnreliableCandidates()
 {
-  double **tmp_f0_candidates = new double *[f0_length];
-  for (int i = 0; i < f0_length; ++i)
-    { tmp_f0_candidates[i] = new double[number_of_candidates]; }
+  double **tmp_f0_candidates_ = new double *[f0_length_];
+  for (int i = 0; i < f0_length_; ++i)
+    { tmp_f0_candidates_[i] = new double[number_of_candidates_]; }
   
-  for (int i = 1; i < f0_length - 1; ++i)
-    { copy(f0_candidates[i], f0_candidates[i] + number_of_candidates, tmp_f0_candidates[i]); }
+  for (int i = 1; i < f0_length_ - 1; ++i)
+    { copy(f0_candidates_[i], f0_candidates_[i] + number_of_candidates_, tmp_f0_candidates_[i]); }
   
-  for (int i = 1; i < f0_length - 1; ++i) {
-    double *pnt_f0_candidates = f0_candidates[i];
-    double *pnt_f0_scores = f0_scores[i];
+  for (int i = 1; i < f0_length_ - 1; ++i) {
+    double *pnt_f0_candidates = f0_candidates_[i];
+    double *pnt_f0_candidates_score = f0_candidates_score_[i];
     
-    for (int j = 0; j < number_of_candidates; ++j) {
+    for (int j = 0; j < number_of_candidates_; ++j) {
       double reference_f0 = pnt_f0_candidates[j];
       double error1, error2, min_error;
       double threshold = 0.05;
       
       if (reference_f0 == 0) continue;
       
-      selectBestF0(reference_f0, tmp_f0_candidates[i + 1],
-		   number_of_candidates, 1.0, error1);
-      selectBestF0(reference_f0, tmp_f0_candidates[i - 1],
-		   number_of_candidates, 1.0, error2);
+      selectBestF0(reference_f0, tmp_f0_candidates_[i + 1],
+		   number_of_candidates_, 1.0, error1);
+      selectBestF0(reference_f0, tmp_f0_candidates_[i - 1],
+		   number_of_candidates_, 1.0, error2);
       
       min_error = MyMinDouble(error1, error2);
      
       if (min_error <= threshold) continue;
       
       pnt_f0_candidates[j] = 0;
-      pnt_f0_scores[j] = 0;
+      pnt_f0_candidates_score[j] = 0;
     }
   }
-  
-  // RemoveUnreliableCandidatesSub(i, j, tmp_f0_candidates,
-  // 				number_of_candidates, f0_candidates, f0_scores);
 
-  for (int i = 0; i < f0_length; ++i) delete[] tmp_f0_candidates[i];
-  delete[] tmp_f0_candidates;
+  for (int i = 0; i < f0_length_; ++i) { delete[] tmp_f0_candidates_[i]; }
+  delete[] tmp_f0_candidates_;
 }
 
 
@@ -767,9 +684,9 @@ void Harvest::getBaseIndex(const double current_position, const double *base_tim
 //-----------------------------------------------------------------------------
 // GetMainWindow() generates the window function.
 //-----------------------------------------------------------------------------
-void Harvest::getMainWindow(const double current_position, const int *base_index,
-			    const int base_time_length, const double fs,
-			    const double window_length_in_time, double *main_window)
+inline void Harvest::getMainWindow(const double current_position, const int *base_index,
+				   const int base_time_length, const double fs,
+				   const double window_length_in_time, double *main_window)
 {
   double tmp = 0.0;
   for (int i = 0; i < base_time_length; ++i) {
@@ -784,8 +701,8 @@ void Harvest::getMainWindow(const double current_position, const int *base_index
 // GetDiffWindow() generates the differentiated window.
 // Diff means differential.
 //-----------------------------------------------------------------------------
-void Harvest::getDiffWindow(const double *main_window, const int base_time_length,
-			    double *diff_window)
+inline void Harvest::getDiffWindow(const double *main_window, const int base_time_length,
+				   double *diff_window)
 {
   diff_window[0] = - main_window[1] / 2.0;
   diff_window[base_time_length - 1] = main_window[base_time_length - 2] / 2.0;
@@ -801,32 +718,35 @@ void Harvest::getDiffWindow(const double *main_window, const int base_time_lengt
 void Harvest::getSpectra(const double *x, const int x_length, const int fft_size,
 			 const int *base_index, const double *main_window,
 			 const double *diff_window, const int base_time_length,
-			 const ForwardRealFFT *forward_real_fft, fft_complex *main_spectrum,
+			 const ForwardRealFFT &forward_real_fft, fft_complex *main_spectrum,
 			 fft_complex *diff_spectrum)
 {
   int *safe_index = new int[base_time_length];
 
+  double *waveform = forward_real_fft.waveform;
+  fft_complex *spectrum = forward_real_fft.spectrum;
+
   for (int i = 0; i < base_time_length; ++i)
     safe_index[i] = MyMaxInt(0, MyMinInt(x_length - 1, base_index[i] - 1));
-  for (int i = 0; i < base_time_length; ++i)
-    forward_real_fft->waveform[i] = x[safe_index[i]] * main_window[i];
-  for (int i = base_time_length; i < fft_size; ++i)
-    forward_real_fft->waveform[i] = 0.0;
 
-  fft_execute(forward_real_fft->forward_fft);
+  for_each(waveform + base_time_length, waveform + fft_size, [](double &v){v = 0;});
+
+  copy(main_window, main_window + base_time_length, waveform);
+  for (int i = 0; i < base_time_length; ++i) { waveform[i] *= x[safe_index[i]]; }
+  
+  fft_execute(forward_real_fft.forward_fft);
   for (int i = 0; i <= fft_size / 2; ++i) {
-    main_spectrum[i][0] = forward_real_fft->spectrum[i][0];
-    main_spectrum[i][1] = -forward_real_fft->spectrum[i][1];
+    main_spectrum[i][0] = spectrum[i][0];
+    main_spectrum[i][1] = -spectrum[i][1];
   }
 
-  for (int i = 0; i < base_time_length; ++i)
-    forward_real_fft->waveform[i] = x[safe_index[i]] * diff_window[i];
-  for (int i = base_time_length; i < fft_size; ++i)
-    forward_real_fft->waveform[i] = 0.0;
-  fft_execute(forward_real_fft->forward_fft);
+  copy(diff_window, diff_window + base_time_length, waveform);
+  for (int i = 0; i < base_time_length; ++i) { waveform[i] *= x[safe_index[i]]; }
+
+  fft_execute(forward_real_fft.forward_fft);
   for (int i = 0; i <= fft_size / 2; ++i) {
-    diff_spectrum[i][0] = forward_real_fft->spectrum[i][0];
-    diff_spectrum[i][1] = -forward_real_fft->spectrum[i][1];
+    diff_spectrum[i][0] = spectrum[i][0];
+    diff_spectrum[i][1] = -spectrum[i][1];
   }
 
   delete[] safe_index;
@@ -871,13 +791,19 @@ void Harvest::fixF0(const double *power_spectrum, const double *numerator_i,
 //-----------------------------------------------------------------------------
 // GetMeanF0() calculates the instantaneous frequency.
 //-----------------------------------------------------------------------------
-void Harvest::getMeanF0(const double *x, const int x_length, const double fs,
-			const double current_position, const double current_f0, const int fft_size,
+void Harvest::getMeanF0(const double current_position, const double current_f0, const int fft_index,
 			const double window_length_in_time, const double *base_time,
 			int base_time_length, double *refined_f0, double *refined_score)
 {
-  ForwardRealFFT forward_real_fft = { 0 };
-  InitializeForwardRealFFT(fft_size, &forward_real_fft);
+  int fft_size = pow(2, fft_index);
+  
+#ifdef _OPENMP
+  ForwardRealFFT forward_real_fft;
+  forward_real_fft.initialize(fft_size);
+#else
+  ForwardRealFFT &forward_real_fft = structFFTs[fft_index - first_fft_index];
+#endif
+  
   fft_complex *main_spectrum = new fft_complex[fft_size];
   fft_complex *diff_spectrum = new fft_complex[fft_size];
 
@@ -885,15 +811,15 @@ void Harvest::getMeanF0(const double *x, const int x_length, const double fs,
   double *main_window = new double[base_time_length];
   double *diff_window = new double[base_time_length];
 
-  getBaseIndex(current_position, base_time, base_time_length, fs, base_index);
+  getBaseIndex(current_position, base_time, base_time_length, actual_fs_, base_index);
   
-  getMainWindow(current_position, base_index, base_time_length, fs,
+  getMainWindow(current_position, base_index, base_time_length, actual_fs_,
 		window_length_in_time, main_window);
   
   getDiffWindow(main_window, base_time_length, diff_window);
 
-  getSpectra(x, x_length, fft_size, base_index, main_window, diff_window,
-	     base_time_length, &forward_real_fft, main_spectrum, diff_spectrum);
+  getSpectra(y_, y_length_, fft_size, base_index, main_window, diff_window,
+	     base_time_length, forward_real_fft, main_spectrum, diff_spectrum);
 
   double *power_spectrum = new double[fft_size / 2 + 1];
   double *numerator_i = new double[fft_size / 2 + 1];
@@ -905,13 +831,11 @@ void Harvest::getMeanF0(const double *x, const int x_length, const double fs,
       main_spectrum[j][0] * main_spectrum[j][0] + main_spectrum[j][1] * main_spectrum[j][1];
   }
 
-  int number_of_harmonics = MyMinInt(static_cast<int>(fs / 2.0 / current_f0), 6);
+  int number_of_harmonics = MyMinInt(static_cast<int>(actual_fs_ / 2.0 / current_f0), 6);
   
-  fixF0(power_spectrum, numerator_i, fft_size, fs, current_f0,
+  fixF0(power_spectrum, numerator_i, fft_size, actual_fs_, current_f0,
 	number_of_harmonics, refined_f0, refined_score);
-
   
-
   delete[] diff_spectrum;
   delete[] diff_window;
   delete[] main_window;
@@ -919,63 +843,57 @@ void Harvest::getMeanF0(const double *x, const int x_length, const double fs,
   delete[] numerator_i;
   delete[] power_spectrum;
   delete[] main_spectrum;
-  DestroyForwardRealFFT(&forward_real_fft);
-}
-
-//-----------------------------------------------------------------------------
-// GetRefinedF0() calculates F0 and its score based on instantaneous frequency.
-//-----------------------------------------------------------------------------
-void Harvest::getRefinedF0(const double *x, const int x_length, const double fs,
-			   const double current_position,
-			   double current_f0,
-			   double *refined_f0, double *refined_score)
-{
-  // double current_f0 = *refined_f0;
-  
-  if (current_f0 <= 0.0) {
-    *refined_f0 = 0.0;
-    *refined_score = 0.0;
-    return;
-  }
-
-  int half_window_length = static_cast<int>(1.5 * fs / current_f0 + 1.0);
-  double window_length_in_time = (2.0 * half_window_length + 1.0) / fs;
-  double *base_time = new double[half_window_length * 2 + 1];
-  
-  for (int i = 0; i < half_window_length * 2 + 1; i++)
-    base_time[i] = (-half_window_length + i) / fs;
-  
-  int fft_size =
-    static_cast<int>(pow(2.0, 2.0 +
-			 static_cast<int>(log(half_window_length * 2.0 + 1.0) / world::kLog2))
-    );
-
-  getMeanF0(x, x_length, fs, current_position, current_f0, fft_size,
-	    window_length_in_time, base_time, half_window_length * 2 + 1,
-	    refined_f0, refined_score);
-
-  if (*refined_f0 < option_.f0_floor ||
-      *refined_f0 > option_.f0_ceil ||
-      *refined_score < 2.5) {
-    *refined_f0 = 0.0;
-    *refined_score = 0.0;
-  }
-  
-  delete[] base_time;
+#ifdef _OPENMP
+  forward_real_fft.destroy();
+#endif
 }
 
 //-----------------------------------------------------------------------------
 // RefineF0() modifies the F0 by instantaneous frequency.
 //-----------------------------------------------------------------------------
-void Harvest::refineF0Candidates(const double *x, int x_length, double fs,
-				 const double *temporal_positions, int f0_length, int max_candidates,
-				 double **refined_f0_candidates, double **f0_scores)
+void Harvest::refineF0Candidates()
 {
-  for (int i = 0; i < f0_length; i++) {
-    for (int j = 0; j < max_candidates; ++j) {
-      getRefinedF0(x, x_length, fs, temporal_positions[i],
-		   refined_f0_candidates[i][j],
-		   &refined_f0_candidates[i][j], &f0_scores[i][j]);
+#ifdef _OPENMP
+#pragma omp parallel for
+#endif
+  for (int i = 0; i < f0_length_; i++) {
+    double *ptr_f0_candidates = f0_candidates_[i];
+    double *ptr_f0_scores = f0_candidates_score_[i];
+    double current_position = temporal_positions_[i];
+    
+    for (int j = 0; j < number_of_candidates_; ++j) {
+      double *refined_f0 = ptr_f0_candidates + j;
+      double *refined_score = ptr_f0_scores + j;
+      double current_f0 = *refined_f0;
+      
+      // calculate F0 and its score based on instantaneous frequency
+      if (current_f0 <= 0.0) {
+	*refined_f0 = 0.0;
+	*refined_score = 0.0;
+	continue;
+      }
+
+      int half_window_length = static_cast<int>(1.5 * actual_fs_ / current_f0 + 1.0);
+      double window_length_in_time = (2.0 * half_window_length + 1.0) / actual_fs_;
+      double *base_time = new double[half_window_length * 2 + 1];
+      
+      for (int i = 0; i < half_window_length * 2 + 1; i++)
+	{ base_time[i] = (- half_window_length + i) / actual_fs_; }
+
+      int fft_index = 2 + static_cast<int>(log(half_window_length * 2 + 1.0) / world::kLog2);
+      
+      getMeanF0(current_position, current_f0, fft_index,
+		window_length_in_time, base_time, half_window_length * 2 + 1,
+		refined_f0, refined_score);
+
+      if (*refined_f0 < option_.f0_floor ||
+	  *refined_f0 > option_.f0_ceil ||
+	  *refined_score < 2.5) {
+	*refined_f0 = 0.0;
+	*refined_score = 0.0;
+      }
+
+      delete[] base_time;
     }
   }
 }
@@ -1095,52 +1013,50 @@ inline int Harvest::checkEvent(int x) {
 // Calculation of F0 candidates is carried out in GetF0CandidatesSub().
 //-----------------------------------------------------------------------------
 void Harvest::getF0CandidateContour(const ZeroCrossings &zero_crossings, const double boundary_f0,
-				    const double *temporal_positions,
-				    const int f0_length, double *f0_candidate)
+				    double *f0_candidate)
 {
   if (0 == checkEvent(zero_crossings.number_of_negatives - 2) *
       checkEvent(zero_crossings.number_of_positives - 2) *
       checkEvent(zero_crossings.number_of_peaks - 2) *
       checkEvent(zero_crossings.number_of_dips - 2)) {
-    for (int i = 0; i < f0_length; ++i) f0_candidate[i] = 0.0;
+    for (int i = 0; i < f0_length_; ++i) f0_candidate[i] = 0.0;
     return;
   }
 
   double *interpolated_f0_set[4];
   for (int i = 0; i < 4; ++i)
-    interpolated_f0_set[i] = new double[f0_length];
+    interpolated_f0_set[i] = new double[f0_length_];
 
   interp1(zero_crossings.negative_interval_locations,
 	  zero_crossings.negative_intervals,
 	  zero_crossings.number_of_negatives,
-	  temporal_positions, f0_length, interpolated_f0_set[0]);
+	  temporal_positions_, f0_length_, interpolated_f0_set[0]);
   interp1(zero_crossings.positive_interval_locations,
 	  zero_crossings.positive_intervals,
 	  zero_crossings.number_of_positives,
-	  temporal_positions, f0_length, interpolated_f0_set[1]);
+	  temporal_positions_, f0_length_, interpolated_f0_set[1]);
   interp1(zero_crossings.peak_interval_locations,
 	  zero_crossings.peak_intervals, zero_crossings.number_of_peaks,
-	  temporal_positions, f0_length, interpolated_f0_set[2]);
+	  temporal_positions_, f0_length_, interpolated_f0_set[2]);
   interp1(zero_crossings.dip_interval_locations,
 	  zero_crossings.dip_intervals, zero_crossings.number_of_dips,
-	  temporal_positions, f0_length, interpolated_f0_set[3]);
-
-  // GetF0CandidateContourSub(interpolated_f0_set, f0_length, boundary_f0, f0_candidate);
+	  temporal_positions_, f0_length_, interpolated_f0_set[3]);
+  
   // GetF0CandidateContourSub
   double upper = boundary_f0 * 1.1;
   double lower = boundary_f0 * 0.9;
   
-  for (int i = 0; i < f0_length; ++i) {
+  for (int i = 0; i < f0_length_; ++i) {
     f0_candidate[i] = (interpolated_f0_set[0][i] +
 		       interpolated_f0_set[1][i] + interpolated_f0_set[2][i] +
 		       interpolated_f0_set[3][i]) / 4.0;
 
     if (f0_candidate[i] > upper || f0_candidate[i] < lower ||
 	f0_candidate[i] > option_.f0_ceil || f0_candidate[i] < option_.f0_floor)
-      f0_candidate[i] = 0.0;
+      { f0_candidate[i] = 0.0; }
   }
   
-  for (int i = 0; i < 4; ++i) delete[] interpolated_f0_set[i];
+  for (int i = 0; i < 4; ++i) { delete[] interpolated_f0_set[i]; }
 }
 
 //-----------------------------------------------------------------------------
@@ -1149,7 +1065,7 @@ void Harvest::getF0CandidateContour(const ZeroCrossings &zero_crossings, const d
 // "positive" means "zero-crossing point going from negative to positive"
 //-----------------------------------------------------------------------------
 
-void Harvest::ZeroCrossings::init_array(const int n)
+void Harvest::ZeroCrossings::initialize(const int n)
 {
   negative_interval_locations = new double[n];
   negative_intervals = new double[n];
@@ -1172,45 +1088,6 @@ void Harvest::ZeroCrossings::destroy()
   delete[] peak_intervals;
   delete[] dip_intervals;
 }
-
-// typedef static struct {
-//   double *negative_interval_locations;
-//   double *negative_intervals;
-//   int number_of_negatives;
-//   double *positive_interval_locations;
-//   double *positive_intervals;
-//   int number_of_positives;
-//   double *peak_interval_locations;
-//   double *peak_intervals;
-//   int number_of_peaks;
-//   double *dip_interval_locations;
-//   double *dip_intervals;
-//   int number_of_dips;
-
-//   void init_array(const int n)
-//   {
-//     negative_interval_locations = new double[n];
-//     negative_intervals = new double[n];
-//     positive_interval_locations = new double[n];
-//     positive_intervals = new double[n];
-//     peak_interval_locations = new double[n];
-//     peak_intervals = new double[n];
-//     dip_interval_locations = new double[n];
-//     dip_intervals = new double[n];
-//   }
-  
-//   void destroy()
-//   {
-//     delete[] negative_interval_locations;
-//     delete[] positive_interval_locations;
-//     delete[] peak_interval_locations;
-//     delete[] dip_interval_locations;
-//     delete[] negative_intervals;
-//     delete[] positive_intervals;
-//     delete[] peak_intervals;
-//     delete[] dip_intervals;
-//   }
-// } ZeroCrossings;
 
 //-----------------------------------------------------------------------------
 // ZeroCrossingEngine() calculates the zero crossing points from positive to
@@ -1264,35 +1141,31 @@ int Harvest::zeroCrossingEngine(const double *filtered_signal, const int y_lengt
 // (3) Peak, and (4) dip. (3) and (4) are calculated from the zero-crossings of
 // the differential of waveform.
 //-----------------------------------------------------------------------------
-void Harvest::getFourZeroCrossingIntervals(double *filtered_signal, const int y_length,
-					   const double actual_fs, ZeroCrossings &zero_crossings)
+void Harvest::getFourZeroCrossingIntervals(double *filtered_signal, ZeroCrossings &zero_crossings)
 {
-  int maximum_number = y_length;
-  zero_crossings.init_array(maximum_number);
-
   zero_crossings.number_of_negatives =
-    zeroCrossingEngine(filtered_signal, y_length, actual_fs,
+    zeroCrossingEngine(filtered_signal, y_length_, actual_fs_,
 		       zero_crossings.negative_interval_locations,
 		       zero_crossings.negative_intervals);
 
-  for (int i = 0; i < y_length; ++i) { filtered_signal[i] *= -1; }
+  for (int i = 0; i < y_length_; ++i) { filtered_signal[i] *= -1; }
   
   zero_crossings.number_of_positives =
-    zeroCrossingEngine(filtered_signal, y_length, actual_fs,
+    zeroCrossingEngine(filtered_signal, y_length_, actual_fs_,
 		       zero_crossings.positive_interval_locations,
 		       zero_crossings.positive_intervals);
 
-  for (int i = 0; i < y_length - 1; ++i) { filtered_signal[i] -= filtered_signal[i + 1]; }
+  for (int i = 0; i < y_length_ - 1; ++i) { filtered_signal[i] -= filtered_signal[i + 1]; }
   
   zero_crossings.number_of_peaks =
-    zeroCrossingEngine(filtered_signal, y_length - 1, actual_fs,
+    zeroCrossingEngine(filtered_signal, y_length_ - 1, actual_fs_,
 		       zero_crossings.peak_interval_locations,
 		       zero_crossings.peak_intervals);
   
-  for (int i = 0; i < y_length - 1; ++i) { filtered_signal[i] *= -1; }
+  for (int i = 0; i < y_length_ - 1; ++i) { filtered_signal[i] *= -1; }
   
   zero_crossings.number_of_dips =
-    zeroCrossingEngine(filtered_signal, y_length - 1, actual_fs,
+    zeroCrossingEngine(filtered_signal, y_length_ - 1, actual_fs_,
 		       zero_crossings.dip_interval_locations,
 		       zero_crossings.dip_intervals);
 }
@@ -1301,18 +1174,16 @@ void Harvest::getFourZeroCrossingIntervals(double *filtered_signal, const int y_
 // GetFilteredSignal() calculates the signal that is the convolution of the
 // input signal and band-pass filter.
 //-----------------------------------------------------------------------------
-void Harvest::getFilteredSignal(const double boundary_f0, const int fft_size, const double fs,
-				const fft_complex *y_spectrum, const int y_length,
-				double *filtered_signal)
+void Harvest::getFilteredSignal(const double boundary_f0, const int fft_size,
+				const fft_complex *y_spectrum, double *filtered_signal)
 {  
-  int filter_length_half = matlab_round(fs / boundary_f0 * 2.0);
+  int filter_length_half = matlab_round(actual_fs_ / boundary_f0 * 2.0);
   double *band_pass_filter = new double[fft_size]();
   NuttallWindow(filter_length_half * 2 + 1, band_pass_filter);
   
   for (int i = -filter_length_half; i <= filter_length_half; ++i)
-    { band_pass_filter[i + filter_length_half] *= cos(2 * world::kPi * boundary_f0 * i / fs); }
+    { band_pass_filter[i + filter_length_half] *= cos(2 * world::kPi * boundary_f0 * i / actual_fs_); }
   
-  // fft_complex *band_pass_filter_spectrum = new fft_complex[fft_size];
   fft_complex *band_pass_filter_spectrum = new fft_complex[fft_size / 2 + 1];
   fft_plan forwardFFT = fft_plan_dft_r2c_1d(fft_size, band_pass_filter,
 					    band_pass_filter_spectrum, FFT_ESTIMATE);
@@ -1333,10 +1204,6 @@ void Harvest::getFilteredSignal(const double boundary_f0, const int fft_size, co
       y_spectrum[i][0] * band_pass_filter_spectrum[i][1] +
       y_spectrum[i][1] * band_pass_filter_spectrum[i][0];
     band_pass_filter_spectrum[i][0] = tmp;
-    // band_pass_filter_spectrum[fft_size - i - 1][0] =
-    //   band_pass_filter_spectrum[i][0];
-    // band_pass_filter_spectrum[fft_size - i - 1][1] =
-    //   band_pass_filter_spectrum[i][1];
   }
 
   fft_plan inverseFFT = fft_plan_dft_c2r_1d(fft_size,
@@ -1346,8 +1213,6 @@ void Harvest::getFilteredSignal(const double boundary_f0, const int fft_size, co
   // Compensation of the delay.
   int index_bias = filter_length_half + 1;
   rotate(filtered_signal, filtered_signal + index_bias, filtered_signal + fft_size);
-  // for (int i = 0; i < y_length; ++i)
-  //   filtered_signal[i] = filtered_signal[i + index_bias];
 
   fft_destroy_plan(inverseFFT);
   fft_destroy_plan(forwardFFT);
@@ -1356,63 +1221,90 @@ void Harvest::getFilteredSignal(const double boundary_f0, const int fft_size, co
 }
 
 //-----------------------------------------------------------------------------
-// GetF0CandidateFromRawEvent() f0 candidate contour in 1-ch signal
-//-----------------------------------------------------------------------------
-void Harvest::getF0CandidateFromRawEvent(const double boundary_f0, const double fs,
-					 const fft_complex *y_spectrum, const int y_length, const int fft_size,
-					 const double *temporal_positions, const int f0_length,
-					 double *f0_candidate) {
-  double *filtered_signal = new double[fft_size];
-  getFilteredSignal(boundary_f0, fft_size, fs, y_spectrum,
-		    y_length, filtered_signal);
-
-  ZeroCrossings zero_crossings;
-  getFourZeroCrossingIntervals(filtered_signal, y_length, fs, zero_crossings);
-
-  getF0CandidateContour(zero_crossings, boundary_f0, temporal_positions, f0_length, f0_candidate);
-
-  // DestroyZeroCrossings(&zero_crossings);
-  zero_crossings.destroy();
-  delete[] filtered_signal;
-}
-
-//-----------------------------------------------------------------------------
 // GetRawF0Candidates() calculates f0 candidates in all channels.
 //-----------------------------------------------------------------------------
-void Harvest::getRawF0Candidates(const double *boundary_f0_list,
-				 const int number_of_bands, const double actual_fs, const int y_length,
-				 const double *temporal_positions, const int f0_length,
+void Harvest::getRawF0Candidates(const double *boundary_f0_list, const int number_of_bands,
 				 const fft_complex *y_spectrum, const int fft_size,
-				 double **raw_f0_candidates) {
+				 double **raw_f0_candidates)
+{
+#ifdef _OPENMP
+#pragma omp parallel for
+#else
+  ZeroCrossings zero_crossings;
+  zero_crossings.initialize(y_length_);
+#endif
+  
   for (int i = 0; i < number_of_bands; ++i) {
-    { getF0CandidateFromRawEvent(boundary_f0_list[i], actual_fs, y_spectrum,
-				 y_length, fft_size, temporal_positions, f0_length,
-				 raw_f0_candidates[i]); }
+#ifdef _OPENMP
+    ZeroCrossings zero_crossings;
+    zero_crossings.initialize(y_length_);
+#endif
+    
+    double boundary_f0 = boundary_f0_list[i];
+    double *filtered_signal = new double[fft_size]();
+    
+    getFilteredSignal(boundary_f0, fft_size, y_spectrum, filtered_signal);    
+    
+    getFourZeroCrossingIntervals(filtered_signal, zero_crossings);
+
+    getF0CandidateContour(zero_crossings, boundary_f0, raw_f0_candidates[i]);
+    
+    delete[] filtered_signal;
+#ifdef _OPENMP
+    zero_crossings.destroy();
+#endif
+  }
+
+#ifndef _OPENMP
+  zero_crossings.destroy();
+#endif
+
+}
+
+void Harvest::prepareFFTs()
+{
+  int half_window_length = static_cast<int>(1.5 * actual_fs_ / option_.f0_ceil + 1.0);
+  int min_fft_index = 2 + static_cast<int>(log(half_window_length * 2 + 1.0) / world::kLog2);
+  half_window_length = static_cast<int>(1.5 * actual_fs_ / option_.f0_floor + 1.0);
+  int max_fft_index = 2 + static_cast<int>(log(half_window_length * 2 + 1.0) / world::kLog2);
+  
+  first_fft_index = min_fft_index;
+  num_fft = max_fft_index - min_fft_index + 1;
+  structFFTs = new ForwardRealFFT[num_fft];
+
+  int fft_size;
+  for (int i = min_fft_index; i <= max_fft_index; i++) {
+    fft_size = pow(2, i);
+    structFFTs[i - min_fft_index].initialize(fft_size);
+  }
+}
+
+void Harvest::destroyFFTs()
+{
+  for (int i = 0; i < num_fft; i++) {
+    structFFTs[i].destroy();
   }
 }
 
 //-----------------------------------------------------------------------------
 // HarvestGeneralBodySub() is the subfunction of HarvestGeneralBody()
 //-----------------------------------------------------------------------------
-int Harvest::generalBodySub(const double *boundary_f0_list,
-			    const int number_of_channels, const int f0_length,
-			    const double actual_fs, const int y_length,
-			    const double *temporal_positions, const fft_complex *y_spectrum,
-			    const int fft_size, const int max_candidates, double **f0_candidates)
+int Harvest::generalBodySub(const double *boundary_f0_list, const int number_of_channels,
+			    const fft_complex *y_spectrum,
+			    const int fft_size, const int max_candidates)
 {
   double **raw_f0_candidates = new double *[number_of_channels];
   for (int i = 0; i < number_of_channels; ++i)
-    raw_f0_candidates[i] = new double[f0_length];
+    raw_f0_candidates[i] = new double[f0_length_];
   
-  getRawF0Candidates(boundary_f0_list, number_of_channels,
-		     actual_fs, y_length, temporal_positions, f0_length, y_spectrum,
+  getRawF0Candidates(boundary_f0_list, number_of_channels, y_spectrum,
 		     fft_size, raw_f0_candidates);
   
   int number_of_candidates =
     detectOfficialF0Candidates(raw_f0_candidates,
-			       number_of_channels, f0_length, max_candidates, f0_candidates);
+			       number_of_channels, f0_length_, max_candidates, f0_candidates_);
 
-  overlapF0Candidates(f0_length, number_of_candidates, f0_candidates);
+  overlapF0Candidates(f0_length_, number_of_candidates, f0_candidates_);
   
   for (int i = 0; i < number_of_channels; ++i)
     delete[] raw_f0_candidates[i];
@@ -1430,6 +1322,10 @@ void Harvest::generalBody(const double *x, const int x_length, const int fs,
 			  const int speed,
 			  double *temporal_positions, double *f0)
 {
+  x_ = x;
+  x_length_ = x_length;
+  temporal_positions_ = temporal_positions;
+  
   double adjusted_f0_floor = option_.f0_floor * 0.9;
   double adjusted_f0_ceil = option_.f0_ceil * 1.1;
   int number_of_channels = 1 + static_cast<int>(log(adjusted_f0_ceil / adjusted_f0_floor) /
@@ -1437,75 +1333,90 @@ void Harvest::generalBody(const double *x, const int x_length, const int fs,
   double *boundary_f0_list = new double[number_of_channels];
   
   for (int i = 0; i < number_of_channels; ++i)
-    { boundary_f0_list[i] = adjusted_f0_floor * pow(2.0, (i + 1) / channels_in_octave); }
+    { boundary_f0_list[i] = adjusted_f0_floor * pow(2.0, static_cast<double>(i + 1) / channels_in_octave); }
 
   // normalization
   int decimation_ratio = MyMaxInt(MyMinInt(speed, 12), 1);
-  int y_length = (1 + static_cast<int>(x_length / decimation_ratio));
-  double actual_fs = static_cast<double>(fs) / decimation_ratio;
+  y_length_ = (1 + static_cast<int>(x_length_ / decimation_ratio));
+  actual_fs_ = static_cast<double>(fs) / decimation_ratio;
   int fft_size =
-    GetSuitableFFTSize(y_length +
-		       (4 * static_cast<int>(1.0 + actual_fs / boundary_f0_list[0] / 2.0)));
+    GetSuitableFFTSize(y_length_ +
+		       (4 * static_cast<int>(1.0 + actual_fs_ / boundary_f0_list[0] / 2.0)));
   
   // Calculation of the spectrum used for the f0 estimation
-  double *y = new double[fft_size](); // init
+  y_ = new double[fft_size](); // init
   fft_complex *y_spectrum = new fft_complex[fft_size / 2 + 1];
   
-  getWaveformAndSpectrum(x, x_length, y_length, actual_fs, fft_size,
-			 decimation_ratio, y, y_spectrum);
+  getWaveformAndSpectrum(fft_size, decimation_ratio, y_spectrum);
 
-  int f0_length = getSamples(fs, x_length, frame_period);
+  f0_length_ = getSamples(fs, x_length_, frame_period);
   
-  for (int i = 0; i < f0_length; ++i) {
-    temporal_positions[i] = i * frame_period / 1000.0;
+  for (int i = 0; i < f0_length_; ++i) {
+    temporal_positions_[i] = i * frame_period / 1000.0;
     f0[i] = 0.0;
   }
 
   int overlap_parameter = 7;
-  int max_candidates =
-    matlab_round(number_of_channels / 10) * overlap_parameter;
-  double **f0_candidates = new double *[f0_length];
-  double **f0_candidates_score = new double *[f0_length];
+  int max_candidates = matlab_round(number_of_channels / 10) * overlap_parameter;
   
-  for (int i = 0; i < f0_length; ++i) {
-    f0_candidates[i] = new double[max_candidates]();
-    f0_candidates_score[i] = new double[max_candidates]();
+  f0_candidates_ = new double *[f0_length_];
+  f0_candidates_score_ = new double *[f0_length_];
+  
+  for (int i = 0; i < f0_length_; ++i) {
+    f0_candidates_[i] = new double[max_candidates]();
+    f0_candidates_score_[i] = new double[max_candidates]();
   }
 
   DWORD t4 = timeGetTime();
 
-  int number_of_candidates =
-    generalBodySub(boundary_f0_list,
-		   number_of_channels, f0_length, actual_fs, y_length, temporal_positions,
-		   y_spectrum, fft_size, max_candidates, f0_candidates)
+  number_of_candidates_ =
+    generalBodySub(boundary_f0_list, number_of_channels, y_spectrum, fft_size, max_candidates)
     * overlap_parameter;
   
   DWORD t5 = timeGetTime();
-  
-  refineF0Candidates(y, y_length, actual_fs, temporal_positions, f0_length,
-		     number_of_candidates, f0_candidates, f0_candidates_score);
-  
-  removeUnreliableCandidates(f0_length, number_of_candidates,
-			     f0_candidates, f0_candidates_score);
 
-  double *best_f0_contour = new double[f0_length];
+#ifndef _OPENMP
+  prepareFFTs();
+#endif
   
-  fixF0Contour(f0_candidates, f0_candidates_score, f0_length,
-	       number_of_candidates, best_f0_contour);
+  refineF0Candidates();
+
+#ifndef _OPENMP
+  destroyFFTs();
+#endif
   
-  smoothF0Contour(best_f0_contour, f0_length, f0);
+  removeUnreliableCandidates();
+
+  double *best_f0_contour = new double[f0_length_];
+  
+  fixF0Contour(best_f0_contour);
+
+  smoothF0Contour(best_f0_contour, f0);
 
   DWORD t6 = timeGetTime();
 
-  delete[] y;
+  double Sum1 = 0, Sum2 = 0, f0_sum = 0, best_f0_sum = 0;
+  for (int i = 0; i < f0_length_; ++i) {
+    for (int j = 0; j < max_candidates; ++j) {
+      Sum1 += f0_candidates_[i][j];
+      Sum2 += f0_candidates_score_[i][j];
+    }
+    f0_sum += f0[i];
+    best_f0_sum += best_f0_contour[i];
+  }
+  cout << "sum: " << Sum1 << ", " << Sum2 << endl;
+  cout << "f0_sum: " << f0_sum << endl;
+  cout << "best_f0_sum: " << best_f0_sum << endl;
+
+  delete[] y_;
   delete[] best_f0_contour;
   delete[] y_spectrum;
-  for (int i = 0; i < f0_length; ++i) {
-    delete[] f0_candidates[i];
-    delete[] f0_candidates_score[i];
+  for (int i = 0; i < f0_length_; ++i) {
+    delete[] f0_candidates_[i];
+    delete[] f0_candidates_score_[i];
   }
-  delete[] f0_candidates;
-  delete[] f0_candidates_score;
+  delete[] f0_candidates_;
+  delete[] f0_candidates_score_;
   delete[] boundary_f0_list;
   
   printf("Harvest time4: %d [msec]\n", t5 - t4);

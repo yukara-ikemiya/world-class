@@ -15,23 +15,29 @@ WORLD_BEGIN_C_DECLS
 // Structs on FFT
 //-----------------------------------------------------------------------------
 // Forward FFT in the real sequence
-typedef struct {
+typedef struct ForwardRealFFT{
   int fft_size;
   double *waveform;
   fft_complex *spectrum;
   fft_plan forward_fft;
+
+  void initialize(int n);
+  void destroy();
 } ForwardRealFFT;
 
 // Inverse FFT in the real sequence
-typedef struct {
+typedef struct InverseRealFFT{
   int fft_size;
   double *waveform;
   fft_complex *spectrum;
   fft_plan inverse_fft;
+
+  void initialize(int n);
+  void destroy();
 } InverseRealFFT;
 
 // Inverse FFT in the complex sequence
-typedef struct {
+typedef struct InverseComplexFFT{
   int fft_size;
   fft_complex *input;
   fft_complex *output;
@@ -39,7 +45,7 @@ typedef struct {
 } InverseComplexFFT;
 
 // Minimum phase analysis from logarithmic power spectrum
-typedef struct {
+typedef struct MinimumPhaseAnalysis{
   int fft_size;
   double *log_spectrum;
   fft_complex *minimum_phase_spectrum;

@@ -122,6 +122,37 @@ void NuttallWindow(int y_length, double *y) {
 
 //-----------------------------------------------------------------------------
 // FFT, IFFT and minimum phase analysis
+
+void ForwardRealFFT::initialize(const int n)
+{
+  fft_size = n;
+  waveform = new double[fft_size];
+  spectrum = new fft_complex[fft_size / 2 + 1];
+  forward_fft = fft_plan_dft_r2c_1d(fft_size, waveform, spectrum, FFT_ESTIMATE);
+}
+
+void ForwardRealFFT::destroy()
+{
+  fft_destroy_plan(forward_fft);
+  delete[] spectrum;
+  delete[] waveform;
+}
+
+void InverseRealFFT::initialize(const int n)
+{
+  fft_size = n;
+  waveform = new double[fft_size];
+  spectrum = new fft_complex[fft_size / 2 + 1];
+  inverse_fft = fft_plan_dft_c2r_1d(fft_size, spectrum, waveform, FFT_ESTIMATE);
+}
+
+void InverseRealFFT::destroy()
+{
+  fft_destroy_plan(inverse_fft);
+  delete[] spectrum;
+  delete[] waveform;
+}
+
 void InitializeForwardRealFFT(int fft_size, ForwardRealFFT *forward_real_fft) {
   forward_real_fft->fft_size = fft_size;
   forward_real_fft->waveform = new double[fft_size];
