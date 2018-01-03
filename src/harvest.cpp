@@ -169,13 +169,12 @@ void Harvest::searchF0Base(const double * const *f0_candidates, const double * c
 //-----------------------------------------------------------------------------
 // Step 1: Rapid change of F0 contour is replaced by 0.
 //-----------------------------------------------------------------------------
-void Harvest::fixStep1(const double *f0_base, const int f0_length,
-		       const double allowed_range, double *f0_step1)
+void Harvest::fixStep1(const double *f0_base, const double allowed_range, double *f0_step1)
 {
   f0_step1[0] = f0_step1[1] = 0.0;
   double reference_f0;
   
-  for (int i = 2; i < f0_length; ++i) {
+  for (int i = 2; i < f0_length_; ++i) {
     if (f0_base[i] == 0.0) { continue; }
     
     reference_f0 = f0_base[i - 1] * 2 - f0_base[i - 2];
@@ -212,13 +211,12 @@ int Harvest::getBoundaryList(const double *f0, const int f0_length, int *boundar
 //-----------------------------------------------------------------------------
 // Step 2: Voiced sections with a short period are removed.
 //-----------------------------------------------------------------------------
-void Harvest::fixStep2(const double *f0_step1, const int f0_length,
-		       const int voice_range_minimum, double *f0_step2)
+void Harvest::fixStep2(const double *f0_step1, const int voice_range_minimum, double *f0_step2)
 {
-  copy(f0_step1, f0_step1 + f0_length, f0_step2);
+  copy(f0_step1, f0_step1 + f0_length_, f0_step2);
 
-  int *boundary_list = new int[f0_length];
-  int number_of_boundaries = getBoundaryList(f0_step1, f0_length, boundary_list);
+  int *boundary_list = new int[f0_length_];
+  int number_of_boundaries = getBoundaryList(f0_step1, f0_length_, boundary_list);
 
   for (int i = 0; i < number_of_boundaries / 2; ++i) {
     if (boundary_list[i * 2 + 1] - boundary_list[i * 2] >= voice_range_minimum)
@@ -454,36 +452,34 @@ void Harvest::getMultiChannelF0(const double *f0, const int f0_length,
 //-----------------------------------------------------------------------------
 // Step 3: Voiced sections are extended based on the continuity of F0 contour
 //-----------------------------------------------------------------------------
-void Harvest::fixStep3(const double *f0_step2, const int f0_length,
-		       const int number_of_candidates, const double * const *f0_candidates,
-		       const double allowed_range, const double * const *f0_scores, double *f0_step3)
+void Harvest::fixStep3(const double *f0_step2, const double allowed_range, double *f0_step3)
 {
-  copy(f0_step2, f0_step2 + f0_length, f0_step3);
+  copy(f0_step2, f0_step2 + f0_length_, f0_step3);
   
-  int *boundary_list = new int[f0_length];
-  int number_of_boundaries = getBoundaryList(f0_step2, f0_length, boundary_list);
+  int *boundary_list = new int[f0_length_];
+  int number_of_boundaries = getBoundaryList(f0_step2, f0_length_, boundary_list);
 
   double **multi_channel_f0 = new double *[number_of_boundaries / 2];
   for (int i = 0; i < number_of_boundaries / 2; ++i)
-    { multi_channel_f0[i] = new double[f0_length]; }
+    { multi_channel_f0[i] = new double[f0_length_]; }
   
-  getMultiChannelF0(f0_step2, f0_length, boundary_list, number_of_boundaries,
+  getMultiChannelF0(f0_step2, f0_length_, boundary_list, number_of_boundaries,
 		    multi_channel_f0);
 
   int number_of_channels =
-    extend(multi_channel_f0, number_of_boundaries / 2, f0_length,
-	   boundary_list, f0_candidates, number_of_candidates, allowed_range);
+    extend(multi_channel_f0, number_of_boundaries / 2, f0_length_,
+	   boundary_list, f0_candidates_, number_of_candidates_, allowed_range);
 
   double sum1 = 0;
   for (int i = 0; i < number_of_boundaries / 2; i++) {
-    for (int j = 0; j < f0_length; j++) {
+    for (int j = 0; j < f0_length_; j++) {
       sum1 += multi_channel_f0[i][j];
     }
   }
   cout << "multi f0 sum2: " << sum1 << endl;
   
-  mergeF0(multi_channel_f0, boundary_list, number_of_channels, f0_length,
-	  f0_candidates, f0_scores, number_of_candidates, f0_step3);
+  mergeF0(multi_channel_f0, boundary_list, number_of_channels, f0_length_,
+	  f0_candidates_, f0_candidates_score_, number_of_candidates_, f0_step3);
 
   for (int i = 0; i < number_of_boundaries / 2; ++i)
     { delete[] multi_channel_f0[i]; }
@@ -494,13 +490,12 @@ void Harvest::fixStep3(const double *f0_step2, const int f0_length,
 //-----------------------------------------------------------------------------
 // Step 4: F0s in short unvoiced section are faked
 //-----------------------------------------------------------------------------
-void Harvest::fixStep4(const double *f0_step3, const int f0_length, const int threshold,
-		       double *f0_step4)
+void Harvest::fixStep4(const double *f0_step3, const int threshold, double *f0_step4)
 {
-  copy(f0_step3, f0_step3 + f0_length, f0_step4);
+  copy(f0_step3, f0_step3 + f0_length_, f0_step4);
   
-  int *boundary_list = new int[f0_length];
-  int number_of_boundaries = getBoundaryList(f0_step3, f0_length, boundary_list);
+  int *boundary_list = new int[f0_length_];
+  int number_of_boundaries = getBoundaryList(f0_step3, f0_length_, boundary_list);
 
   int distance;
   double tmp0, tmp1, coefficient;
@@ -532,27 +527,10 @@ void Harvest::fixF0Contour(double *best_f0_contour)
   // These parameters are optimized by speech databases.
   searchF0Base(f0_candidates_, f0_candidates_score_, f0_length_,
 	       number_of_candidates_, tmp_f0_contour1);
-  fixStep1(tmp_f0_contour1, f0_length_, 0.008, tmp_f0_contour2);
-
-  double sum1 = 0, sum2 = 0;
-  for (int i = 0; i < f0_length_; i++) {
-    sum1 += tmp_f0_contour1[i];
-    sum2 += tmp_f0_contour2[i];
-  }
-  cout << "tmp_f0_contour sum: " << sum1 << ", " << sum2 << endl;
-  
-  fixStep2(tmp_f0_contour2, f0_length_, 6, tmp_f0_contour1);
-  fixStep3(tmp_f0_contour1, f0_length_, number_of_candidates_, f0_candidates_,
-	   0.18, f0_candidates_score_, tmp_f0_contour2);
-
-  sum1 = 0; sum2 = 0;
-  for (int i = 0; i < f0_length_; i++) {
-    sum1 += tmp_f0_contour1[i];
-    sum2 += tmp_f0_contour2[i];
-  }
-  cout << "tmp_f0_contour sum: " << sum1 << ", " << sum2 << endl;
-  
-  fixStep4(tmp_f0_contour2, f0_length_, 9, best_f0_contour);
+  fixStep1(tmp_f0_contour1, 0.008, tmp_f0_contour2);
+  fixStep2(tmp_f0_contour2, 6, tmp_f0_contour1);
+  fixStep3(tmp_f0_contour1, 0.18, tmp_f0_contour2);
+  fixStep4(tmp_f0_contour2, 9, best_f0_contour);
 
   delete[] tmp_f0_contour1;
   delete[] tmp_f0_contour2;

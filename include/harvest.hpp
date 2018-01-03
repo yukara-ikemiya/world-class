@@ -12,6 +12,7 @@ typedef struct HarvestOption{
   double f0_floor;
   double f0_ceil;
   double frame_period;
+  
   HarvestOption();
 } HarvestOption;
 
@@ -22,7 +23,7 @@ class Harvest
 public:
 
   Harvest();
-  Harvest(const HarvestOption& option);
+  Harvest(const HarvestOption &option);
 
   void compute(const double* x, int x_length, int fs,
 	       double *temporal_positions, double *f0);
@@ -31,7 +32,9 @@ public:
   int getSamples(int fs, int x_length);
 
 private:
-
+  
+  HarvestOption option_;
+  
   const double *x_;
   int x_length_;
   double *y_;
@@ -66,8 +69,6 @@ private:
     void initialize(int n);
     void destroy();
   };
-  
-  HarvestOption option_;
 
   void generalBody(const double *x, int x_length, int fs,
 		   int frame_period, double channels_in_octave,
@@ -138,14 +139,10 @@ private:
 		   int x_length, int st, int ed, double *y);
 
   void fixF0Contour(double *best_f0_contour);
-  void fixStep4(const double *f0_step3, int f0_length, int threshold, double *f0_step4);
-  void fixStep3(const double *f0_step2, int f0_length,
-		int number_of_candidates, const double * const *f0_candidates,
-		double allowed_range, const double * const *f0_scores, double *f0_step3);
-  void fixStep2(const double *f0_step1, int f0_length,
-		int voice_range_minimum, double *f0_step2);
-  void fixStep1(const double *f0_base, int f0_length,
-		double allowed_range, double *f0_step1);
+  void fixStep4(const double *f0_step3, int threshold, double *f0_step4);
+  void fixStep3(const double *f0_step2, double allowed_range, double *f0_step3);
+  void fixStep2(const double *f0_step1, int voice_range_minimum, double *f0_step2);
+  void fixStep1(const double *f0_base, double allowed_range, double *f0_step1);
   void searchF0Base(const double * const *f0_candidates, const double * const *f0_scores,
 		    int f0_length, int number_of_candidates, double *base_f0_contour);
 
