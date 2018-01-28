@@ -1,17 +1,16 @@
 //-----------------------------------------------------------------------------
-// Copyright 2017 Masanori Morise
-// Author: mmorise [at] yamanashi.ac.jp (Masanori Morise)
-// Last update: 2017/05/09
+// Copyright 2017 Masanori Morise,
+// Copyright 2018 Yukara Ikemiya
 //
 // Coder/decoder functions for the spectral envelope and aperiodicity.
 //-----------------------------------------------------------------------------
-#include "world/codec.h"
+#include "codec.hpp"
 
 #include <math.h>
 
-#include "world/constantnumbers.h"
-#include "world/fft.h"
-#include "world/matlabfunctions.h"
+#include "world_constantnumbers.hpp"
+#include "world_fft.hpp"
+#include "world_matlabfunctions.hpp"
 
 namespace {
 //-----------------------------------------------------------------------------
@@ -278,8 +277,8 @@ void CodeSpectralEnvelope(const double * const *spectrogram, int f0_length,
       MyMinDouble(fs / 2.0, world::kCeilFrequency), fs, fft_size,
       mel_axis, frequency_axis, weight);
 
-  ForwardRealFFT forward_real_fft = { 0 };
-  InitializeForwardRealFFT(fft_size / 2, &forward_real_fft);
+  ForwardRealFFT forward_real_fft;
+  forward_real_fft.initialize(fft_size / 2);
 
   for (int i = 0; i < f0_length; ++i) {
     for (int j = 0; j < fft_size / 2 + 1; ++j)
@@ -289,7 +288,7 @@ void CodeSpectralEnvelope(const double * const *spectrogram, int f0_length,
         coded_spectral_envelope[i]);
   }
 
-  DestroyForwardRealFFT(&forward_real_fft);
+  forward_real_fft.destroy();
   delete[] weight;
   delete[] tmp_spectrum;
   delete[] frequency_axis;
@@ -309,8 +308,8 @@ void DecodeSpectralEnvelope(const double * const *coded_spectral_envelope,
       MyMinDouble(fs / 2.0, world::kCeilFrequency),
       fs, fft_size, number_of_dimensions, mel_axis, frequency_axis, weight);
 
-  InverseComplexFFT inverse_complex_fft = { 0 };
-  InitializeInverseComplexFFT(fft_size / 2, &inverse_complex_fft);
+  InverseComplexFFT inverse_complex_fft;
+  inverse_complex_fft.initialize(fft_size / 2);
 
   for (int i = 0; i < f0_length; ++i) {
     DecodeOneFrame(coded_spectral_envelope[i], frequency_axis, fft_size,
@@ -318,7 +317,7 @@ void DecodeSpectralEnvelope(const double * const *coded_spectral_envelope,
         &inverse_complex_fft, spectrogram[i]);
   }
 
-  DestroyInverseComplexFFT(&inverse_complex_fft);
+  inverse_complex_fft.destroy();
   delete[] weight;
   delete[] tmp_spectrum;
   delete[] frequency_axis;

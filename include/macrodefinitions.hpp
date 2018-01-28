@@ -28,8 +28,8 @@
 // Some usefull macros and defines.
 //-----------------------------------------------------------------------------
 
-#ifndef WORLD_MACRODEFINITIONS_H_
-#define WORLD_MACRODEFINITIONS_H_
+#ifndef WORLD_MACRODEFINITIONS_HPP
+#define WORLD_MACRODEFINITIONS_HPP
 
 //
 // @file macrodefinitions.h
@@ -108,7 +108,7 @@
 #  endif  // __GNUC__ >= 4
 #endif  // defined _WIN32 || defined __CYGWIN__ || defined WORLD_WIN32
 
-//
+	//
 // WORLD_LIBRARIES_EXPORTS
 // ----------------------
 // WORLD_LIBRARIES_EXPORTS should be defined when compiling a
@@ -141,4 +141,4 @@
 // end documentation
 //
 
-#endif  // WORLD_MACRODEFINITIONS_H_
+#endif 

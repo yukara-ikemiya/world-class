@@ -1,13 +1,13 @@
 //-----------------------------------------------------------------------------
 // Copyright 2012 Masanori Morise
-// Author: mmorise [at] yamanashi.ac.jp (Masanori Morise)
-// Last update: 2017/02/01
+// Copyright 2018 Yukara Ikemiya
 //-----------------------------------------------------------------------------
-#ifndef WORLD_MATLABFUNCTIONS_H_
-#define WORLD_MATLABFUNCTIONS_H_
 
-#include "world_common.h"
-#include "macrodefinitions.h"
+#ifndef WORLD_MATLABFUNCTIONS_HPP
+#define WORLD_MATLABFUNCTIONS_HPP
+
+#include "world_common.hpp"
+#include "macrodefinitions.hpp"
 
 WORLD_BEGIN_C_DECLS
 
@@ -46,7 +46,7 @@ void fftshift(const double *x, int x_length, double *y);
 //   Lengths of index and edges must be the same.
 //-----------------------------------------------------------------------------
 void histc(const double *x, int x_length, const double *edges,
-  int edges_length, int *index);
+		   int edges_length, int *index);
 
 //-----------------------------------------------------------------------------
 // interp1() interpolates to find yi, the values of the underlying function Y
@@ -64,7 +64,7 @@ void histc(const double *x, int x_length, const double *edges,
 //   yi         : Interpolated vector
 //-----------------------------------------------------------------------------
 void interp1(const double *x, const double *y, int x_length, const double *xi,
-  int xi_length, double *yi);
+			 int xi_length, double *yi);
 
 //-----------------------------------------------------------------------------
 // decimate() carries out down sampling by both IIR and FIR filters.
@@ -123,7 +123,7 @@ void diff(const double *x, int x_length, double *y);
 //   Length of xi and yi must be the same.
 //-----------------------------------------------------------------------------
 void interp1Q(double x, double shift, const double *y, int x_length,
-  const double *xi, int xi_length, double *yi);
+			  const double *xi, int xi_length, double *yi);
 
 //-----------------------------------------------------------------------------
 // randn() generates pseudorandom numbers based on xorshift method.
@@ -149,8 +149,8 @@ double randn(void);
 //   y                : Calculated result.
 //-----------------------------------------------------------------------------
 void fast_fftfilt(const double *x, int x_length, const double *h, int h_length,
-  int fft_size, const ForwardRealFFT *forward_real_fft,
-  const InverseRealFFT *inverse_real_fft, double *y);
+				  int fft_size, const ForwardRealFFT *forward_real_fft,
+				  const InverseRealFFT *inverse_real_fft, double *y);
 
 //-----------------------------------------------------------------------------
 // matlab_std() calculates the standard deviation of the input vector.
@@ -166,4 +166,4 @@ double matlab_std(const double *x, int x_length);
 
 WORLD_END_C_DECLS
 
-#endif  // WORLD_MATLABFUNCTIONS_H_
+#endif
