@@ -109,9 +109,10 @@ void D4C::prepareForD4c(int fs)
 	}	
 }
 
-void D4C::compute(const double *x, int x_length,
-				  const double *temporal_positions, const double *f0, int f0_length,
-				  int fft_size, double **aperiodicity)
+void D4C::compute(
+	const double *x, int x_length,
+	const double *temporal_positions, const double *f0, int f0_length,
+	int fft_size, double **aperiodicity)
 {
 	x_ = x;
 	x_length_ = x_length;
@@ -204,9 +205,10 @@ void D4C::loveTrain(double *aperiodicity0)
 	}
 }
 
-double D4C::loveTrainSub(const double current_f0, const double current_position, const int fft_size,
-						 const int boundary0, const int boundary1, const int boundary2,
-						 const ForwardRealFFT &forward_real_fft)
+double D4C::loveTrainSub(
+	const double current_f0, const double current_position, const int fft_size,
+	const int boundary0, const int boundary1, const int boundary2,
+	const ForwardRealFFT &forward_real_fft)
 {
 	double *power_spectrum = new double[fft_size];
 
@@ -240,8 +242,9 @@ double D4C::loveTrainSub(const double current_f0, const double current_position,
 // D4C::getWindowedWaveform() windows the waveform by F0-adaptive window
 // In the variable window_type, 1: hanning, 2: blackman
 //-----------------------------------------------------------------------------
-void D4C::getWindowedWaveform(double current_f0, double current_position, int window_type,
-							  double window_length_ratio, double *waveform)
+void D4C::getWindowedWaveform(
+	double current_f0, double current_position, int window_type,
+	double window_length_ratio, double *waveform)
 {
 	int half_window_length = matlab_round(window_length_ratio * fs_ / current_f0 / 2.0);
 
@@ -301,9 +304,10 @@ void D4C::getWindowedWaveform(double current_f0, double current_position, int wi
 //-----------------------------------------------------------------------------
 // D4C::generalBody() calculates a spectral envelope at a temporal position.
 //-----------------------------------------------------------------------------
-void D4C::generalBody(const double current_f0, const double current_position,
-					  const ForwardRealFFT &forward_real_fft,
-					  double *coarse_aperiodicity)
+void D4C::generalBody(
+	const double current_f0, const double current_position,
+	const ForwardRealFFT &forward_real_fft,
+	double *coarse_aperiodicity)
 {
 	double *static_centroid = new double[fft_size_d4c_ / 2 + 1];
 	double *smoothed_power_spectrum = new double[fft_size_d4c_ / 2 + 1];
@@ -331,8 +335,9 @@ void D4C::generalBody(const double current_f0, const double current_position,
 // GetStaticCentroid() calculates the temporally static energy centroid.
 // Basic idea was proposed by H. Kawahara.
 //-----------------------------------------------------------------------------
-void D4C::getStaticCentroid(double current_f0, double current_position,
-							const ForwardRealFFT &forward_real_fft, double *static_centroid)
+void D4C::getStaticCentroid(
+	double current_f0, double current_position,
+	const ForwardRealFFT &forward_real_fft, double *static_centroid)
 {
 	int bin_size = fft_size_d4c_ / 2 + 1;
   
@@ -357,8 +362,9 @@ void D4C::getStaticCentroid(double current_f0, double current_position,
 // D4C::getCentroid() calculates the energy centroid (see the book, time-frequency
 // analysis written by L. Cohen).
 //-----------------------------------------------------------------------------
-void D4C::getCentroid(const double current_f0, const double current_position,
-					  const ForwardRealFFT &forward_real_fft, double *centroid)
+void D4C::getCentroid(
+	const double current_f0, const double current_position,
+	const ForwardRealFFT &forward_real_fft, double *centroid)
 {
 	double *waveform = forward_real_fft.waveform;
 	fft_complex *spectrum = forward_real_fft.spectrum;
@@ -401,9 +407,10 @@ void D4C::getCentroid(const double current_f0, const double current_position,
 // GetSmoothedPowerSpectrum() calculates the smoothed power spectrum.
 // The parameters used for smoothing are optimized in davance.
 //-----------------------------------------------------------------------------
-void D4C::getSmoothedPowerSpectrum(const double current_f0, const double current_position,
-								   const ForwardRealFFT &forward_real_fft,
-								   double *smoothed_power_spectrum)
+void D4C::getSmoothedPowerSpectrum(
+	const double current_f0, const double current_position,
+	const ForwardRealFFT &forward_real_fft,
+	double *smoothed_power_spectrum)
 {
 	double *waveform = forward_real_fft.waveform;
 	fft_complex *spectrum = forward_real_fft.spectrum;
@@ -429,8 +436,9 @@ void D4C::getSmoothedPowerSpectrum(const double current_f0, const double current
 // D4C::getStaticGroupDelay() calculates the temporally static group delay.
 // This is the fundamental parameter in D4C.
 //-----------------------------------------------------------------------------
-void D4C::getStaticGroupDelay(const double *static_centroid, const double *smoothed_power_spectrum,
-							  const double current_f0, double *static_group_delay)
+void D4C::getStaticGroupDelay(
+	const double *static_centroid, const double *smoothed_power_spectrum,
+	const double current_f0, double *static_group_delay)
 {
 	int bin_size = fft_size_d4c_ / 2 + 1;
   
@@ -454,9 +462,10 @@ void D4C::getStaticGroupDelay(const double *static_centroid, const double *smoot
 // GetCoarseAperiodicity() calculates the aperiodicity in multiples of 3 kHz.
 // The upper limit is given based on the sampling frequency.
 //-----------------------------------------------------------------------------
-void D4C::getCoarseAperiodicity(const double *static_group_delay,
-								const ForwardRealFFT &forward_real_fft,
-								double *coarse_aperiodicity)
+void D4C::getCoarseAperiodicity(
+	const double *static_group_delay,
+	const ForwardRealFFT &forward_real_fft,
+	double *coarse_aperiodicity)
 {
 	double *waveform = forward_real_fft.waveform;
 	fft_complex *spectrum = forward_real_fft.spectrum;
