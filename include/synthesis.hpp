@@ -57,9 +57,12 @@ private:
 	int fft_size_;
 	double frame_period_;
 	double *dc_remover_;
+	int num_thread_;
 	
 	// buffers for computation
-	double *impulse_response_;
+	MinimumPhaseAnalysis *minimum_phase_;
+	InverseRealFFT *inverse_real_fft_;
+	ForwardRealFFT *forward_real_fft_;
 	double *spectral_envelope_;
 	double *aperiodic_ratio_;
 	double *periodic_response_;
@@ -92,10 +95,9 @@ private:
 		const double * const *spectrogram, int fft_size,
 		const double * const *aperiodicity, int f0_length, double frame_period,
 		double current_time, double fractional_time_shift, int fs,
-		const ForwardRealFFT *forward_real_fft,
-		const InverseRealFFT *inverse_real_fft,
+		const ForwardRealFFT *forward_real_fft, const InverseRealFFT *inverse_real_fft,
 		MinimumPhaseAnalysis *minimum_phase, const double *dc_remover,
-		double *response
+		double *response, int thread_id = 0
 	);
 
 	void getSpectralEnvelope(

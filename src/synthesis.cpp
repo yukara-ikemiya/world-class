@@ -10,6 +10,7 @@
 #include <cmath>
 #include <numeric>
 #include <algorithm>
+#include <omp.h>
 
 #include <iostream>
 
@@ -30,23 +31,48 @@ namespace world_class
 Synthesis::Synthesis(int fs, int fft_size, double frame_period)
 	: fs_(fs), fft_size_(fft_size), frame_period_(frame_period / 1000.)
 	, dc_remover_(new double[fft_size_])
-	, impulse_response_(new double[fft_size_])
-	, spectral_envelope_(new double[fft_size_ / 2 + 1])
-	, aperiodic_ratio_(new double[fft_size_ / 2 + 1])
-	, periodic_response_(new double[fft_size_])
-	, aperiodic_response_(new double[fft_size_])
 {
+#ifdef _OPENMP
+	num_thread_ = omp_get_num_procs();
+#else
+	num_thread_ = 1;
+#endif
+
+	minimum_phase_ = new MinimumPhaseAnalysis[num_thread_];
+	inverse_real_fft_ = new InverseRealFFT[num_thread_];
+	forward_real_fft_ = new ForwardRealFFT[num_thread_];
+
+	for (int ii = 0; ii < num_thread_; ii++) {
+		minimum_phase_[ii].initialize(fft_size_);
+		inverse_real_fft_[ii].initialize(fft_size_);
+		forward_real_fft_[ii].initialize(fft_size_);
+	}
+	
+	spectral_envelope_ = new double[(fft_size_ / 2 + 1) * num_thread_];
+	aperiodic_ratio_ = new double[(fft_size_ / 2 + 1) * num_thread_];
+	periodic_response_ = new double[fft_size_ * num_thread_];
+	aperiodic_response_ = new double[fft_size_ * num_thread_];
+	
 	getDCRemover(fft_size_, dc_remover_);
 }
 
 Synthesis::~Synthesis()
 {
 	delete[] dc_remover_;
-	delete[] impulse_response_;
 	delete[] spectral_envelope_;
 	delete[] aperiodic_ratio_;
 	delete[] periodic_response_;
 	delete[] aperiodic_response_;
+
+	for (int ii = 0; ii < num_thread_; ii++) {
+		minimum_phase_[ii].destroy();
+		inverse_real_fft_[ii].destroy();
+		forward_real_fft_[ii].destroy();
+	}
+
+	delete[] minimum_phase_;
+	delete[] inverse_real_fft_;
+	delete[] forward_real_fft_;
 }
 
 void Synthesis::compute(
@@ -72,8 +98,51 @@ void Synthesis::compute(
 		getTimeBase(f0, f0_length, fs_, frame_period_,
 					out_length, fs_ / fft_size_ + 1.0, pulse_locations, pulse_locations_index,
 					pulse_locations_time_shift, interpolated_vuv);
+
+#ifdef _OPENMP
+	double *impulse_response = new double[fft_size_ * number_of_pulses];
+#pragma omp parallel for num_threads(num_thread_)
+	for (int ii = 0; ii < number_of_pulses; ii++) {
+		int thread_id = omp_get_thread_num();
+		
+		int noise_size = pulse_locations_index[MyMinInt(number_of_pulses - 1, ii + 1)] -
+						 pulse_locations_index[ii];
+		
+		getOneFrameSegment(
+			interpolated_vuv[pulse_locations_index[ii]], noise_size,
+			spectrogram, fft_size_, aperiodicity, f0_length, frame_period_,
+			pulse_locations[ii], pulse_locations_time_shift[ii], fs_,
+			forward_real_fft_ + thread_id, inverse_real_fft_ + thread_id, minimum_phase_ + thread_id,
+			dc_remover_, impulse_response + ii * fft_size_, thread_id
+		);
+	}
 	
+	int index, b_index, e_index, len_valid;
+	double *head = impulse_response;
+	for (int ii = 0; ii < number_of_pulses; ii++) {
+		index = pulse_locations_index[ii] - fft_size_ / 2;
+		
+		if (index + fft_size_ < 0 || index + 1 >= out_length) {
+			head += fft_size_;
+			continue;
+		}
+		
+		b_index = (index + 1 < 0) ? abs(index + 1) : 0;
+		e_index = (index + fft_size_ >= out_length) ? out_length - index : fft_size_;
+		len_valid = e_index - b_index;
+		index += b_index;
+		
+		for (int jj = b_index; jj < b_index + len_valid; jj++) {
+			index++;
+			out[index] += head[jj];
+		}
+		
+		head += fft_size_;
+	}
+#else
+	double *impulse_response = new double[fft_size_];
 	int noise_size;
+	int index, b_index, e_index, len_valid;
 	for (int ii = 0; ii < number_of_pulses; ii++) {
 		noise_size = pulse_locations_index[MyMinInt(number_of_pulses - 1, ii + 1)] -
 					 pulse_locations_index[ii];
@@ -82,34 +151,31 @@ void Synthesis::compute(
 			interpolated_vuv[pulse_locations_index[ii]], noise_size,
 			spectrogram, fft_size_, aperiodicity, f0_length, frame_period_,
 			pulse_locations[ii], pulse_locations_time_shift[ii], fs_,
-			&forward_real_fft, &inverse_real_fft, &minimum_phase, dc_remover_,
-			impulse_response_
+			forward_real_fft_, inverse_real_fft_, minimum_phase_,
+			dc_remover_, impulse_response
 		);
 
-		int index = pulse_locations_index[ii] - fft_size_ / 2;
+		index = pulse_locations_index[ii] - fft_size_ / 2;
 
 		if (index + fft_size_ < 0 || index + 1 >= out_length) { continue; }
 
-		int b_index = (index + 1 < 0) ? abs(index + 1) : 0;
-		int e_index = (index + fft_size_ >= out_length) ? out_length - index : fft_size_;
-		int len_valid = e_index - b_index;
+		b_index = (index + 1 < 0) ? abs(index + 1) : 0;
+		e_index = (index + fft_size_ >= out_length) ? out_length - index : fft_size_;
+		len_valid = e_index - b_index;
 		index += b_index;
+		
 		for (int jj = b_index; jj < b_index + len_valid; jj++) {
 			index++;
-			out[index] += impulse_response_[jj];
-		}		
-		
-		// for (int jj = 0; jj < fft_size_; jj++) {
-		// 	index++;
-		// 	if (index < 0 || index > out_length - 1) continue;
-		// 	out[index] += impulse_response_[jj];
-		// }
+			out[index] += impulse_response[jj];
+		}
 	}
+#endif
 	
 	delete[] pulse_locations;
 	delete[] pulse_locations_index;
 	delete[] pulse_locations_time_shift;
 	delete[] interpolated_vuv;
+	delete[] impulse_response;
 
 	minimum_phase.destroy();
 	inverse_real_fft.destroy();
@@ -250,16 +316,15 @@ void Synthesis::getOneFrameSegment(
 	const double * const *spectrogram, int fft_size,
 	const double * const *aperiodicity, int f0_length, double frame_period,
 	double current_time, double fractional_time_shift, int fs,
-	const ForwardRealFFT *forward_real_fft,
-	const InverseRealFFT *inverse_real_fft,
+	const ForwardRealFFT *forward_real_fft, const InverseRealFFT *inverse_real_fft,
 	MinimumPhaseAnalysis *minimum_phase, const double *dc_remover,
-	double *response)
+	double *response, int thread_id)
 {
-	double *spectral_envelope = spectral_envelope_;
-	double *aperiodic_ratio = aperiodic_ratio_;
+	double *spectral_envelope = spectral_envelope_ + (fft_size_ / 2 + 1) * thread_id;
+	double *aperiodic_ratio = aperiodic_ratio_ + (fft_size_ / 2 + 1) * thread_id;
 
-	double *periodic_response = periodic_response_;
-	double *aperiodic_response = aperiodic_response_;
+	double *periodic_response = periodic_response_ + fft_size_ * thread_id;
+	double *aperiodic_response = aperiodic_response_ + fft_size_ * thread_id;
 	
 	getSpectralEnvelope(current_time, frame_period, f0_length, spectrogram,
 						fft_size, spectral_envelope);
