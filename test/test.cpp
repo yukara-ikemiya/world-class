@@ -40,7 +40,7 @@
 #include "cheaptrick.hpp"
 #include "d4c.hpp"
 // #include "world/stonemask.h"
-// #include "world/synthesis.h"
+#include "synthesis.hpp"
 // #include "world/synthesisrealtime.h"
 
 #if (defined (__linux__) || defined(__CYGWIN__) || defined(__APPLE__))
@@ -79,7 +79,8 @@ typedef struct {
 
 namespace {
 
-void DisplayInformation(int fs, int nbit, int x_length) {
+void DisplayInformation(int fs, int nbit, int x_length)
+{
 	printf("File information\n");
 	printf("Sampling : %d Hz %d Bit\n", fs, nbit);
 	printf("Length %d [sample]\n", x_length);
@@ -88,7 +89,8 @@ void DisplayInformation(int fs, int nbit, int x_length) {
 
 
 void F0EstimationHarvest(double *x, int x_length,
-						 WorldParameters *world_parameters) {
+						 WorldParameters *world_parameters)
+{
 	HarvestOption option;
 
 	// You can change the frame period.
@@ -115,7 +117,8 @@ void F0EstimationHarvest(double *x, int x_length,
 
 
 void SpectralEnvelopeEstimation(double *x, int x_length,
-								WorldParameters *world_parameters) {
+								WorldParameters *world_parameters)
+{
 	CheapTrickOption option;
   
 	// Default value was modified to -0.15.
@@ -152,7 +155,8 @@ void SpectralEnvelopeEstimation(double *x, int x_length,
 
 
 void AperiodicityEstimation(double *x, int x_length,
-							WorldParameters *world_parameters) {
+							WorldParameters *world_parameters)
+{
 	D4COption option;
 
 	// Comment was modified because it was confusing (2017/12/10).
@@ -181,7 +185,8 @@ void AperiodicityEstimation(double *x, int x_length,
 
 
 void ParameterModification(int argc, char *argv[], int fs, int f0_length,
-						   int fft_size, double *f0, double **spectrogram) {
+						   int fft_size, double *f0, double **spectrogram)
+{
 	// F0 scaling
 	if (argc >= 4) {
 		double shift = atof(argv[3]);
@@ -222,19 +227,21 @@ void ParameterModification(int argc, char *argv[], int fs, int f0_length,
 	delete[] freq_axis2;
 }
 
-void WaveformSynthesis(WorldParameters *world_parameters, int fs,
-					   int y_length, double *y) {
+void WaveformSynthesis1(WorldParameters *world_parameters, int fs,
+						int y_length, double *y)
+{
 	DWORD elapsed_time;
 	// Synthesis by the aperiodicity
 	printf("\nSynthesis 1 (conventional algorithm)\n");
 	elapsed_time = timeGetTime();
-	Synthesis(world_parameters->f0, world_parameters->f0_length,
-			  world_parameters->spectrogram, world_parameters->aperiodicity,
-			  world_parameters->fft_size, world_parameters->frame_period, fs,
-			  y_length, y);
+	Synthesis synthesis = Synthesis(fs, world_parameters->fft_size, world_parameters->frame_period);
+	synthesis.compute(world_parameters->f0, world_parameters->f0_length,
+					  world_parameters->spectrogram, world_parameters->aperiodicity,
+					  y_length, y);
 	printf("WORLD: %d [msec]\n", timeGetTime() - elapsed_time);
 }
 
+/*
 void WaveformSynthesis2(WorldParameters *world_parameters, int fs,
 						int y_length, double *y) {
 	DWORD elapsed_time;
@@ -261,6 +268,7 @@ void WaveformSynthesis2(WorldParameters *world_parameters, int fs,
 	printf("WORLD: %d [msec]\n", timeGetTime() - elapsed_time);
 	DestroySynthesizer(&synthesizer);
 }
+*/
 
   /*
   void WaveformSynthesis3(WorldParameters *world_parameters, int fs,
@@ -406,15 +414,22 @@ int main(int argc, char *argv[]) {
 	// The length of the output waveform
 	int y_length = static_cast<int>((world_parameters.f0_length - 1) *
 									world_parameters.frame_period / 1000.0 * fs) + 1;
-	double *y = new double[y_length];
+	double *y = new double[y_length]();
 
-	/*
+	
 	// Synthesis 1 (conventional synthesis)
-	for (int i = 0; i < y_length; ++i) y[i] = 0.0;
-	WaveformSynthesis(&world_parameters, fs, y_length, y);
+	WaveformSynthesis1(&world_parameters, fs, y_length, y);
 	sprintf(filename, "01%s", argv[2]);
 	wavwrite(y, y_length, fs, 16, filename);
 
+	double synt_sum_1 = 0;
+	for (int ii = 0; ii < y_length; ii++) {
+		synt_sum_1 += y[ii];
+	}
+
+	cout << "synthesis1_sum: " << synt_sum_1 << endl;
+
+	/*
 	// Synthesis 2 (All frames are added at the same time)
 	for (int i = 0; i < y_length; ++i) y[i] = 0.0;
 	WaveformSynthesis2(&world_parameters, fs, y_length, y);
