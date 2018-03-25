@@ -17,8 +17,14 @@ typedef struct HarvestOption{
 	double f0_floor;
 	double f0_ceil;
 	double frame_period;
+
+	double target_fs;
+	double channels_in_octave;
+
+	bool use_cos_table;
   
 	HarvestOption();
+	void copy(const HarvestOption& option);
 } HarvestOption;
 
 
@@ -26,13 +32,12 @@ class Harvest
 {
 
 public:
-
-	Harvest();
-	Harvest(const HarvestOption &option);
+	
+	Harvest(const int fs, const HarvestOption &option);
+	~Harvest();
 
 	void compute(
-		const double* x, int x_length, int fs,
-		double *temporal_positions, double *f0
+		const double* x, int x_length,double *temporal_positions, double *f0
 	);
 
 	int getSamples(int fs, int x_length, double frame_period);
@@ -41,23 +46,46 @@ public:
 private:
   
 	HarvestOption option_;
+	int fs_;
+	int decimation_ratio_;
+	double actual_fs_;
+	int num_thread_;
   
 	const double *x_;
 	int x_length_;
 	double *y_;
 	int y_length_;
 	double *temporal_positions_;
-
-	double actual_fs_;
+	
 	int f0_length_;
 	int number_of_candidates_;
   
 	double **f0_candidates_;
 	double **f0_candidates_score_;
 
-	ForwardRealFFT *structFFTs;
-	int first_fft_index;
-	int num_fft;
+	// buffers for getMeanF0
+	int max_fft_size_;
+	int max_base_time_length_;
+	fft_complex *main_spectrum_;
+	fft_complex *diff_spectrum_;
+	int *base_index_;
+	double *main_window_;
+	double *diff_window_;
+	double *power_spectrum_;
+	double *numerator_i_;
+	// buffers for refineF0Candidates
+	double *base_time_;
+	// buffers for getSpectra
+	int *safe_index_;
+
+	// FFTs
+	ForwardRealFFT *structFFTs_;
+	int first_fft_index_;
+	int num_fft_;
+
+	// cosine table
+	int num_cos_div_;
+	double *cos_table_;
 
 	struct ZeroCrossings{
 		double *negative_interval_locations;
@@ -78,9 +106,9 @@ private:
 	};
 
 	void generalBody(
-		const double *x, int x_length, int fs,
+		const double *x, int x_length,
 		int frame_period, double channels_in_octave,
-		int speed, double *temporal_positions, double *f0
+		double *temporal_positions, double *f0
 	);
 	int generalBodySub(
 		const double *boundary_f0_list, int number_of_channels,
@@ -89,6 +117,8 @@ private:
 
 	void prepareFFTs();
 	void destroyFFTs();
+
+	void get_cos_table();
 
 	void getWaveformAndSpectrum(
 		int fft_size, int decimation_ratio, fft_complex *y_spectrum
@@ -144,7 +174,8 @@ private:
 	void getMeanF0(
 		double current_position, double current_f0, int fft_index,
 		double window_length_in_time, const double *base_time,
-		int base_time_length, double *refined_f0, double *refined_score
+		int base_time_length, double *refined_f0, double *refined_score,
+		int thread_id = 0
 	);
 	void fixF0(
 		const double *power_spectrum, const double *numerator_i,
@@ -156,7 +187,7 @@ private:
 		const int *base_index, const double *main_window,
 		const double *diff_window, int base_time_length,
 		const ForwardRealFFT &forward_real_fft, fft_complex *main_spectrum,
-		fft_complex *diff_spectrum
+		fft_complex *diff_spectrum, int thread_id = 0
 	);
 	inline void getDiffWindow(
 		const double *main_window, int base_time_length,

@@ -10,11 +10,28 @@
 #include <cmath>
 #include <algorithm>
 #include <numeric>
+#include <omp.h>
 
 #include "world_common.hpp"
 #include "world_constantnumbers.hpp"
 #include "world_fft.hpp"
 #include "world_matlabfunctions.hpp"
+
+// debug
+/*
+#include <chrono>
+#include <iostream>
+using namespace std;
+// time measurement methods
+using chrono_tp = chrono::system_clock::time_point;
+inline chrono_tp get_time_now() {
+	return chrono::system_clock::now();
+}
+
+inline double get_elapsed_msec(chrono_tp st, chrono_tp end) {
+	return chrono::duration_cast<chrono::nanoseconds>(end-st).count() / 1.0e6;
+}
+*/
 
 
 namespace
@@ -25,6 +42,8 @@ using std::generate;
 using std::for_each;
 using std::accumulate;
 using std::rotate;
+using std::fmod;
+using std::round;
 }
 
 namespace world_class
@@ -32,18 +51,124 @@ namespace world_class
 
 HarvestOption::HarvestOption()
 	: f0_floor(world::kFloorF0), f0_ceil(world::kCeilF0), frame_period(5)
+	, target_fs(8000.), channels_in_octave(40.)
+	, use_cos_table(false)
 {}
 
-
-Harvest::Harvest()
-{}
-
-Harvest::Harvest(const HarvestOption& option)
+void HarvestOption::copy(const HarvestOption& option)
 {
-	option_.f0_floor = option.f0_floor;
-	option_.f0_ceil = option.f0_ceil;
-	option_.frame_period = option.frame_period;
+	f0_floor = option.f0_floor;
+	f0_ceil = option.f0_ceil;
+	frame_period = option.frame_period;
+	target_fs = option.target_fs;
+	channels_in_octave = option.channels_in_octave;
+	use_cos_table = option.use_cos_table;
 }
+
+
+Harvest::Harvest(const int fs, const HarvestOption& option)
+	: num_cos_div_(2000)
+{
+#ifdef _OPENMP
+	num_thread_ = omp_get_num_procs();
+#else
+	num_thread_ = 1;
+#endif
+	
+	option_.copy(option);
+	fs_ = fs;
+
+	decimation_ratio_ = matlab_round(fs_ / option_.target_fs);
+	decimation_ratio_ = MyMaxInt(MyMinInt(decimation_ratio_, 12), 1);
+	actual_fs_ = static_cast<double>(fs_) / decimation_ratio_;
+
+	int max_half_window_length = static_cast<int>(1.5 * actual_fs_ / option_.f0_floor + 1.0);
+	int max_fft_index = 2 + static_cast<int>(log(max_half_window_length * 2 + 1.0) / world::kLog2);
+	max_fft_size_ = pow(2, max_fft_index);
+	max_base_time_length_ = max_half_window_length * 2 + 1;
+	
+	main_spectrum_ = new fft_complex[max_fft_size_ * num_thread_];
+	diff_spectrum_ = new fft_complex[max_fft_size_ * num_thread_];
+	base_index_ = new int[max_base_time_length_ * num_thread_];
+	main_window_ = new double[max_base_time_length_ * num_thread_];
+	diff_window_ = new double[max_base_time_length_ * num_thread_];
+	power_spectrum_ = new double[(max_fft_size_ / 2 + 1) * num_thread_];
+	numerator_i_ = new double[(max_fft_size_ / 2 + 1) * num_thread_];
+	base_time_ = new double[max_base_time_length_ * num_thread_];
+	safe_index_ = new int[max_base_time_length_ * num_thread_];
+	
+	prepareFFTs();
+
+	if (option_.use_cos_table) { get_cos_table(); }
+}
+
+Harvest::~Harvest()
+{
+	destroyFFTs();
+
+	delete[] main_spectrum_;
+	delete[] diff_spectrum_;
+	delete[] base_index_;
+	delete[] main_window_;
+	delete[] diff_window_;
+	delete[] power_spectrum_;
+	delete[] numerator_i_;
+	delete[] base_time_;
+	delete[] safe_index_;
+
+	if (option_.use_cos_table) { delete[] cos_table_; }
+}
+
+void Harvest::prepareFFTs()
+{
+	int half_window_length = static_cast<int>(1.5 * actual_fs_ / option_.f0_ceil + 1.0);
+	int min_fft_index = 2 + static_cast<int>(log(half_window_length * 2 + 1.0) / world::kLog2);
+	half_window_length = static_cast<int>(1.5 * actual_fs_ / option_.f0_floor + 1.0);
+	int max_fft_index = 2 + static_cast<int>(log(half_window_length * 2 + 1.0) / world::kLog2);
+  
+	first_fft_index_ = min_fft_index;
+	num_fft_ = max_fft_index - min_fft_index + 1;
+	structFFTs_ = new ForwardRealFFT[num_fft_ * num_thread_];
+
+	int fft_size, index;
+	for (int ii = min_fft_index; ii <= max_fft_index; ii++) {
+		fft_size = pow(2, ii);
+		for (int jj = 0; jj < num_thread_; jj++) {
+			index = jj * num_fft_ + (ii - min_fft_index);
+			structFFTs_[index].initialize(fft_size);
+		}
+	}
+}
+
+void Harvest::destroyFFTs()
+{
+	for (int ii = 0; ii < num_fft_ * num_thread_; ii++) {
+		structFFTs_[ii].destroy();
+	}
+
+	delete[] structFFTs_;
+}
+
+void Harvest::get_cos_table()
+{
+	cos_table_ = new double[num_cos_div_ * 4 + 1];
+
+	// 0 -- 2 * pi
+	double interval = world::kPi / 2. / num_cos_div_;
+	for (int ii = 0; ii < num_cos_div_ + 1; ii++) {
+		cos_table_[ii] = cos(interval * ii);
+	}
+	for (int ii = 0; ii < num_cos_div_; ii++) {
+		cos_table_[ii + num_cos_div_ + 1] = - cos_table_[num_cos_div_ - 1 - ii];
+	}
+	for (int ii = 0; ii < num_cos_div_; ii++) {
+		cos_table_[ii + num_cos_div_ * 2 + 1] = - cos_table_[ii + 1];
+	}
+	for (int ii = 0; ii < num_cos_div_; ii++) {
+		cos_table_[ii + num_cos_div_ * 3 + 1] = cos_table_[num_cos_div_ - 1 - ii];
+	}
+}
+
 
 int Harvest::getSamples(const int fs, const int x_length, const double frame_period)
 {
@@ -55,31 +180,23 @@ int Harvest::getSamples(const int fs, const int x_length)
 	return static_cast<int>(1000.0 * x_length / fs / option_.frame_period) + 1;
 }
 
-void Harvest::compute(const double* x, const int x_length, const int fs,
-					  double *temporal_positions, double *f0)
+void Harvest::compute(const double* x, const int x_length, double *temporal_positions, double *f0)
 {
-	// Several parameters will be controllable for debug.
-	double target_fs = 8000.0;
-	int dimension_ratio = matlab_round(fs / target_fs);
-	double channels_in_octave = 40;
-
 	if (option_.frame_period == 1.0) {
-		generalBody(x, x_length, fs, 1,
-					channels_in_octave, dimension_ratio,
-					temporal_positions, f0);
+		generalBody(x, x_length, 1,
+					option_.channels_in_octave, temporal_positions, f0);
 		return;
 	}
 
 	int basic_frame_period = 1;
-	int basic_f0_length = getSamples(fs, x_length, basic_frame_period);
+	int basic_f0_length = getSamples(fs_, x_length, basic_frame_period);
 	double *basic_f0 = new double[basic_f0_length];
 	double *basic_temporal_positions = new double[basic_f0_length];
   
-	generalBody(x, x_length, fs, basic_frame_period,
-				channels_in_octave, dimension_ratio,
-				basic_temporal_positions, basic_f0);
+	generalBody(x, x_length, basic_frame_period,
+				option_.channels_in_octave, basic_temporal_positions, basic_f0);
 
-	int f0_length = getSamples(fs, x_length, option_.frame_period);
+	int f0_length = getSamples(fs_, x_length, option_.frame_period);
 	for (int i = 0; i < f0_length; ++i) {
 		temporal_positions[i] = i * option_.frame_period / 1000.0;
 		f0[i] = basic_f0[MyMinInt(basic_f0_length - 1,
@@ -100,8 +217,7 @@ void Harvest::getWaveformAndSpectrum(const int fft_size, const int decimation_ra
 	if (decimation_ratio == 1) {
 		copy(x_, x_ + x_length_, y_);
 		for_each(y_ + x_length_, y_ + y_length_, [](double &v){v = 0;});
-	}
-	else {
+	} else {
 		int lag = static_cast<int>(ceil(140.0 / decimation_ratio) * decimation_ratio);
 		int new_x_length = x_length_ + lag * 2;
 		double *new_y = new double[new_x_length]();
@@ -109,7 +225,8 @@ void Harvest::getWaveformAndSpectrum(const int fft_size, const int decimation_ra
     
 		for_each(new_x, new_x + lag, [&](double &v){v = x_[0];});
 		copy(x_, x_ + x_length_, new_x + lag);
-		for_each(new_x + lag + x_length_, new_x + new_x_length, [&](double &v){v = x_[x_length_ - 1];});
+		for_each(new_x + lag + x_length_, new_x + new_x_length,
+				 [&](double &v){v = x_[x_length_ - 1];});
 
 		decimate(new_x, new_x_length, decimation_ratio, new_y);
 		for (int i = 0; i < y_length_; ++i) { y_[i] = new_y[lag / decimation_ratio + i]; }
@@ -646,12 +763,27 @@ inline void Harvest::getMainWindow(const double current_position, const int *bas
 								   const int base_time_length, const double fs,
 								   const double window_length_in_time, double *main_window)
 {
-	double tmp = 0.0;
-	for (int i = 0; i < base_time_length; ++i) {
-		tmp = (base_index[i] - 1.0) / fs - current_position;
-		main_window[i] = 0.42 +
-						 0.5 * cos(2.0 * world::kPi * tmp / window_length_in_time) +
-						 0.08 * cos(4.0 * world::kPi * tmp / window_length_in_time);
+	double two_pi = 2.0 * world::kPi;
+	
+	double tmp, tmp2;
+	if (!option_.use_cos_table) {
+		for (int ii = 0; ii < base_time_length; ii++) {
+			tmp = (base_index[ii] - 1.0) / fs - current_position;
+			tmp2 = two_pi * tmp / window_length_in_time;
+			main_window[ii] = 0.42 + 0.5 * cos(tmp2) + 0.08 * cos(2 * tmp2);
+		}
+	} else {
+		int num_div = num_cos_div_ * 4;
+		double dindex, dindex2;
+		// num_cos_div_ * 4 + 1]
+		for (int ii = 0; ii < base_time_length; ii++) {
+			tmp = (base_index[ii] - 1.0) / fs - current_position;
+			tmp2 = two_pi * (tmp / window_length_in_time + 1);
+			dindex = fmod(tmp2, two_pi) / two_pi * num_div;
+			dindex2 = fmod(dindex * 2, num_div);
+			main_window[ii] = 0.42 + 0.5 * cos_table_[(int)round(dindex)]
+							 + 0.08 * cos_table_[(int)round(dindex2)];
+		}
 	}
 }
 
@@ -665,8 +797,9 @@ inline void Harvest::getDiffWindow(const double *main_window, const int base_tim
 	diff_window[0] = - main_window[1] / 2.0;
 	diff_window[base_time_length - 1] = main_window[base_time_length - 2] / 2.0;
   
-	for (int i = 1; i < base_time_length - 1; ++i)
-    { diff_window[i] = -(main_window[i + 1] - main_window[i - 1]) / 2.0; }
+	for (int i = 1; i < base_time_length - 1; ++i) {
+		diff_window[i] = - (main_window[i + 1] - main_window[i - 1]) / 2.0;
+	}
 }
 
 //-----------------------------------------------------------------------------
@@ -677,9 +810,9 @@ void Harvest::getSpectra(const double *x, const int x_length, const int fft_size
 						 const int *base_index, const double *main_window,
 						 const double *diff_window, const int base_time_length,
 						 const ForwardRealFFT &forward_real_fft, fft_complex *main_spectrum,
-						 fft_complex *diff_spectrum)
+						 fft_complex *diff_spectrum, int thread_id)
 {
-	int *safe_index = new int[base_time_length];
+	int *safe_index = safe_index_ + max_base_time_length_ * thread_id;
 
 	double *waveform = forward_real_fft.waveform;
 	fft_complex *spectrum = forward_real_fft.spectrum;
@@ -706,8 +839,6 @@ void Harvest::getSpectra(const double *x, const int x_length, const int fft_size
 		diff_spectrum[i][0] = spectrum[i][0];
 		diff_spectrum[i][1] = -spectrum[i][1];
 	}
-
-	delete[] safe_index;
 }
 
 void Harvest::fixF0(const double *power_spectrum, const double *numerator_i,
@@ -751,74 +882,69 @@ void Harvest::fixF0(const double *power_spectrum, const double *numerator_i,
 //-----------------------------------------------------------------------------
 void Harvest::getMeanF0(const double current_position, const double current_f0, const int fft_index,
 						const double window_length_in_time, const double *base_time,
-						int base_time_length, double *refined_f0, double *refined_score)
+						int base_time_length, double *refined_f0, double *refined_score,
+						int thread_id)
 {
 	int fft_size = pow(2, fft_index);
   
 #ifdef _OPENMP
-	ForwardRealFFT forward_real_fft;
-	forward_real_fft.initialize(fft_size);
+	ForwardRealFFT &forward_real_fft = structFFTs_[thread_id * num_fft_ + (fft_index - first_fft_index_)];
 #else
-	ForwardRealFFT &forward_real_fft = structFFTs[fft_index - first_fft_index];
+	ForwardRealFFT &forward_real_fft = structFFTs_[fft_index - first_fft_index_];
 #endif
   
-	fft_complex *main_spectrum = new fft_complex[fft_size];
-	fft_complex *diff_spectrum = new fft_complex[fft_size];
+	fft_complex *main_spectrum = main_spectrum_ + max_fft_size_ * thread_id;
+	fft_complex *diff_spectrum = diff_spectrum_ + max_fft_size_ * thread_id;
 
-	int *base_index = new int[base_time_length];
-	double *main_window = new double[base_time_length];
-	double *diff_window = new double[base_time_length];
-
+	int *base_index = base_index_ + max_base_time_length_ * thread_id;
+	double *main_window = main_window_ + max_base_time_length_ * thread_id;
+	double *diff_window = diff_window_ + max_base_time_length_ * thread_id;
+	
 	getBaseIndex(current_position, base_time, base_time_length, actual_fs_, base_index);
-  
+	
 	getMainWindow(current_position, base_index, base_time_length, actual_fs_,
 				  window_length_in_time, main_window);
-  
+	
 	getDiffWindow(main_window, base_time_length, diff_window);
-
+	
 	getSpectra(y_, y_length_, fft_size, base_index, main_window, diff_window,
-			   base_time_length, forward_real_fft, main_spectrum, diff_spectrum);
-
-	double *power_spectrum = new double[fft_size / 2 + 1];
-	double *numerator_i = new double[fft_size / 2 + 1];
+			   base_time_length, forward_real_fft, main_spectrum, diff_spectrum, thread_id);
+	
+	double *power_spectrum = power_spectrum_ + (max_fft_size_ / 2 + 1) * thread_id;
+	double *numerator_i = numerator_i_ + (max_fft_size_ / 2 + 1) * thread_id;
   
 	for (int j = 0; j <= fft_size / 2; ++j) {
-		numerator_i[j] =
-			main_spectrum[j][0] * diff_spectrum[j][1] - main_spectrum[j][1] * diff_spectrum[j][0];
 		power_spectrum[j] =
 			main_spectrum[j][0] * main_spectrum[j][0] + main_spectrum[j][1] * main_spectrum[j][1];
+		numerator_i[j] =
+			main_spectrum[j][0] * diff_spectrum[j][1] - main_spectrum[j][1] * diff_spectrum[j][0];
 	}
 
 	int number_of_harmonics = MyMinInt(static_cast<int>(actual_fs_ / 2.0 / current_f0), 6);
   
 	fixF0(power_spectrum, numerator_i, fft_size, actual_fs_, current_f0,
 		  number_of_harmonics, refined_f0, refined_score);
-  
-	delete[] diff_spectrum;
-	delete[] diff_window;
-	delete[] main_window;
-	delete[] base_index;
-	delete[] numerator_i;
-	delete[] power_spectrum;
-	delete[] main_spectrum;
-#ifdef _OPENMP
-	forward_real_fft.destroy();
-#endif
 }
 
 //-----------------------------------------------------------------------------
 // RefineF0() modifies the F0 by instantaneous frequency.
 //-----------------------------------------------------------------------------
 void Harvest::refineF0Candidates()
-{
+{	
 #ifdef _OPENMP
 #pragma omp parallel for
 #endif
 	for (int i = 0; i < f0_length_; i++) {
+#ifdef _OPENMP
+		int thread_id = omp_get_thread_num();
+#else
+		constexpr int thread_id = 0;
+#endif
+		
 		double *ptr_f0_candidates = f0_candidates_[i];
 		double *ptr_f0_scores = f0_candidates_score_[i];
 		double current_position = temporal_positions_[i];
-    
+		    
 		for (int j = 0; j < number_of_candidates_; ++j) {
 			double *refined_f0 = ptr_f0_candidates + j;
 			double *refined_score = ptr_f0_scores + j;
@@ -833,16 +959,17 @@ void Harvest::refineF0Candidates()
 
 			int half_window_length = static_cast<int>(1.5 * actual_fs_ / current_f0 + 1.0);
 			double window_length_in_time = (2.0 * half_window_length + 1.0) / actual_fs_;
-			double *base_time = new double[half_window_length * 2 + 1];
+			double *base_time = base_time_ + max_base_time_length_ * thread_id;
       
-			for (int i = 0; i < half_window_length * 2 + 1; i++)
-			{ base_time[i] = (- half_window_length + i) / actual_fs_; }
+			for (int i = 0; i < half_window_length * 2 + 1; i++) {
+				base_time[i] = (- half_window_length + i) / actual_fs_;
+			}
 
 			int fft_index = 2 + static_cast<int>(log(half_window_length * 2 + 1.0) / world::kLog2);
-      
+			
 			getMeanF0(current_position, current_f0, fft_index,
 					  window_length_in_time, base_time, half_window_length * 2 + 1,
-					  refined_f0, refined_score);
+					  refined_f0, refined_score, thread_id);
 
 			if (*refined_f0 < option_.f0_floor ||
 				*refined_f0 > option_.f0_ceil ||
@@ -850,8 +977,6 @@ void Harvest::refineF0Candidates()
 				*refined_f0 = 0.0;
 				*refined_score = 0.0;
 			}
-
-			delete[] base_time;
 		}
 	}
 }
@@ -1220,30 +1345,6 @@ void Harvest::getRawF0Candidates(const double *boundary_f0_list, const int numbe
 
 }
 
-void Harvest::prepareFFTs()
-{
-	int half_window_length = static_cast<int>(1.5 * actual_fs_ / option_.f0_ceil + 1.0);
-	int min_fft_index = 2 + static_cast<int>(log(half_window_length * 2 + 1.0) / world::kLog2);
-	half_window_length = static_cast<int>(1.5 * actual_fs_ / option_.f0_floor + 1.0);
-	int max_fft_index = 2 + static_cast<int>(log(half_window_length * 2 + 1.0) / world::kLog2);
-  
-	first_fft_index = min_fft_index;
-	num_fft = max_fft_index - min_fft_index + 1;
-	structFFTs = new ForwardRealFFT[num_fft];
-
-	int fft_size;
-	for (int i = min_fft_index; i <= max_fft_index; i++) {
-		fft_size = pow(2, i);
-		structFFTs[i - min_fft_index].initialize(fft_size);
-	}
-}
-
-void Harvest::destroyFFTs()
-{
-	for (int i = 0; i < num_fft; i++) {
-		structFFTs[i].destroy();
-	}
-}
 
 //-----------------------------------------------------------------------------
 // HarvestGeneralBodySub() is the subfunction of HarvestGeneralBody()
@@ -1276,9 +1377,8 @@ int Harvest::generalBodySub(const double *boundary_f0_list, const int number_of_
 //-----------------------------------------------------------------------------
 // HarvestGeneralBody() estimates the F0 contour based on Harvest.
 //-----------------------------------------------------------------------------
-void Harvest::generalBody(const double *x, const int x_length, const int fs,
+void Harvest::generalBody(const double *x, const int x_length,
 						  const int frame_period, const double channels_in_octave,
-						  const int speed,
 						  double *temporal_positions, double *f0)
 {
 	x_ = x;
@@ -1291,13 +1391,13 @@ void Harvest::generalBody(const double *x, const int x_length, const int fs,
 												  world::kLog2 * channels_in_octave);
 	double *boundary_f0_list = new double[number_of_channels];
   
-	for (int i = 0; i < number_of_channels; ++i)
-    { boundary_f0_list[i] = adjusted_f0_floor * pow(2.0, static_cast<double>(i + 1) / channels_in_octave); }
+	for (int i = 0; i < number_of_channels; ++i) {
+		boundary_f0_list[i] = adjusted_f0_floor *
+							  pow(2.0, static_cast<double>(i + 1) / channels_in_octave);
+	}
 
 	// normalization
-	int decimation_ratio = MyMaxInt(MyMinInt(speed, 12), 1);
-	y_length_ = (1 + static_cast<int>(x_length_ / decimation_ratio));
-	actual_fs_ = static_cast<double>(fs) / decimation_ratio;
+	y_length_ = (1 + static_cast<int>(x_length_ / decimation_ratio_));
 	int fft_size =
 		GetSuitableFFTSize(y_length_ +
 						   (4 * static_cast<int>(1.0 + actual_fs_ / boundary_f0_list[0] / 2.0)));
@@ -1305,10 +1405,10 @@ void Harvest::generalBody(const double *x, const int x_length, const int fs,
 	// Calculation of the spectrum used for the f0 estimation
 	y_ = new double[fft_size](); // init
 	fft_complex *y_spectrum = new fft_complex[fft_size / 2 + 1];
-  
-	getWaveformAndSpectrum(fft_size, decimation_ratio, y_spectrum);
-
-	f0_length_ = getSamples(fs, x_length_, frame_period);
+	
+	getWaveformAndSpectrum(fft_size, decimation_ratio_, y_spectrum);
+	
+	f0_length_ = getSamples(fs_, x_length_, frame_period);
   
 	for (int i = 0; i < f0_length_; ++i) {
 		temporal_positions_[i] = i * frame_period / 1000.0;
@@ -1329,21 +1429,13 @@ void Harvest::generalBody(const double *x, const int x_length, const int fs,
 	number_of_candidates_ =
 		generalBodySub(boundary_f0_list, number_of_channels, y_spectrum, fft_size, max_candidates)
 		* overlap_parameter;
-
-#ifndef _OPENMP
-	prepareFFTs();
-#endif
-  
+	
 	refineF0Candidates();
-
-#ifndef _OPENMP
-	destroyFFTs();
-#endif
-  
+	
 	removeUnreliableCandidates();
 
 	double *best_f0_contour = new double[f0_length_];
-  
+	
 	fixF0Contour(best_f0_contour);
 
 	smoothF0Contour(best_f0_contour, f0);
