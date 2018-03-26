@@ -12,8 +12,6 @@
 #include <algorithm>
 #include <omp.h>
 
-#include <iostream>
-
 #include "world_common.hpp"
 #include "world_constantnumbers.hpp"
 #include "world_matlabfunctions.hpp"
@@ -23,6 +21,7 @@ namespace
 {
 using std::accumulate;
 using std::for_each;
+using std::max_element;
 }
 
 namespace world_class
@@ -83,22 +82,21 @@ void Synthesis::compute(
 	// init
 	for_each(out, out + out_length, [](double& v){v = 0;});
 
-	MinimumPhaseAnalysis minimum_phase;
-	minimum_phase.initialize(fft_size_);
-	InverseRealFFT inverse_real_fft;
-	inverse_real_fft.initialize(fft_size_);
-	ForwardRealFFT forward_real_fft;
-	forward_real_fft.initialize(fft_size_);
+	double max_f0 = *max_element(f0, f0 + f0_length);
+	
+	int min_pulse_interval = (int)(fs_ / max_f0);
+	int max_num_pulses = out_length / min_pulse_interval;
 
-	double *pulse_locations = new double[out_length];
-	int *pulse_locations_index = new int[out_length];
-	double *pulse_locations_time_shift = new double[out_length];
+	double *pulse_locations = new double[max_num_pulses];
+	int *pulse_locations_index = new int[max_num_pulses];
+	double *pulse_locations_time_shift = new double[max_num_pulses];
 	double *interpolated_vuv = new double[out_length];
+
 	int number_of_pulses =
 		getTimeBase(f0, f0_length, fs_, frame_period_,
 					out_length, fs_ / fft_size_ + 1.0, pulse_locations, pulse_locations_index,
 					pulse_locations_time_shift, interpolated_vuv);
-
+	
 #ifdef _OPENMP
 	double *impulse_response = new double[fft_size_ * number_of_pulses];
 #pragma omp parallel for num_threads(num_thread_)
@@ -128,7 +126,7 @@ void Synthesis::compute(
 		}
 		
 		b_index = (index + 1 < 0) ? abs(index + 1) : 0;
-		e_index = (index + fft_size_ >= out_length) ? out_length - index : fft_size_;
+		e_index = (index + fft_size_ >= out_length) ? out_length - index - 1 : fft_size_;
 		len_valid = e_index - b_index;
 		index += b_index;
 		
@@ -138,7 +136,7 @@ void Synthesis::compute(
 		}
 		
 		head += fft_size_;
-	}
+	}	
 #else
 	double *impulse_response = new double[fft_size_];
 	int noise_size;
@@ -160,7 +158,7 @@ void Synthesis::compute(
 		if (index + fft_size_ < 0 || index + 1 >= out_length) { continue; }
 
 		b_index = (index + 1 < 0) ? abs(index + 1) : 0;
-		e_index = (index + fft_size_ >= out_length) ? out_length - index : fft_size_;
+		e_index = (index + fft_size_ >= out_length) ? out_length - index - 1 : fft_size_;
 		len_valid = e_index - b_index;
 		index += b_index;
 		
@@ -176,10 +174,6 @@ void Synthesis::compute(
 	delete[] pulse_locations_time_shift;
 	delete[] interpolated_vuv;
 	delete[] impulse_response;
-
-	minimum_phase.destroy();
-	inverse_real_fft.destroy();
-	forward_real_fft.destroy();
 }
 
 
@@ -205,13 +199,13 @@ int Synthesis::getTimeBase(
 	
 	interp1(coarse_time_axis, coarse_vuv, f0_length + 1,
 			time_axis, y_length, interpolated_vuv);
-
+	
 	for (int ii = 0; ii < y_length; ii++) {
 		interpolated_vuv[ii] = interpolated_vuv[ii] > 0.5 ? 1.0 : 0.0;
 		interpolated_f0[ii] =
 			interpolated_vuv[ii] == 0.0 ? world::kDefaultF0 : interpolated_f0[ii];
 	}
-
+	
 	int number_of_pulses =
 		getPulseLocationsForTimeBase(
 			interpolated_f0,

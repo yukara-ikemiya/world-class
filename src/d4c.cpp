@@ -8,6 +8,7 @@
 #include "d4c.hpp"
 
 #include <cmath>
+#include <numeric>
 #include <algorithm>
 #include <omp.h>
 
