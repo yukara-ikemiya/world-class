@@ -18,17 +18,6 @@
 #include <iostream>
 #include <chrono>
 
-// #if (defined (__WIN32__) || defined (_WIN32)) && !defined (__MINGW32__)
-// #include <conio.h>
-// #include <windows.h>
-// #pragma comment(lib, "winmm.lib")
-// #pragma warning(disable : 4996)
-// #endif
-// #if (defined (__linux__) || defined(__CYGWIN__) || defined(__APPLE__))
-// #include <stdint.h>
-// #include <sys/time.h>
-// #endif
-
 // For .wav input/output functions.
 #include "audioio.hpp"
 
@@ -298,7 +287,7 @@ void DestroyMemory(WorldParameters *world_parameters) {
 //-----------------------------------------------------------------------------
 int main(int argc, char *argv[]) {
 	if (argc != 2 && argc != 3 && argc != 4 && argc != 5) {
-		cerr << "error\n" << endl;
+		cout << "Usage : ./test [input wav path] [output wav path]" << endl;
 		return -2;
 	}
 
@@ -384,21 +373,7 @@ int main(int argc, char *argv[]) {
 		synt_sum_1 += y[ii];
 	}
 
-	/*
-	// Synthesis 2 (All frames are added at the same time)
-	for (int i = 0; i < y_length; ++i) y[i] = 0.0;
-	WaveformSynthesis2(&world_parameters, fs, y_length, y);
-	sprintf(filename, "02%s", argv[2]);
-	wavwrite(y, y_length, fs, 16, filename);
-
-	// Synthesis 3 (Ring buffer is efficiently used.)
-	for (int i = 0; i < y_length; ++i) y[i] = 0.0;
-	WaveformSynthesis3(&world_parameters, fs, y_length, y);
-	sprintf(filename, "03%s", argv[2]);
-	wavwrite(y, y_length, fs, 16, filename);
-	*/
-
-	// delete[] y;
+	delete[] y;
 	delete[] x;
 	DestroyMemory(&world_parameters);
 
