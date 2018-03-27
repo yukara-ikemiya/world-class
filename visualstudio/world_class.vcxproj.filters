@@ -1,0 +1,87 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Header Files\world">
+      <UniqueIdentifier>{034ba662-7056-4b3c-875c-d44d90fb8cbe}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\subfunction">
+      <UniqueIdentifier>{1ba093cf-8dfe-4718-8282-da4599a3d581}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\world">
+      <UniqueIdentifier>{66adf2bd-ad1b-4fab-89fd-9c985a3e328a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\subfunction">
+      <UniqueIdentifier>{c2643b27-78ae-455f-8a5a-cade0662c852}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\src\cheaptrick.cpp">
+      <Filter>Source Files\world</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\d4c.cpp">
+      <Filter>Source Files\world</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\harvest.cpp">
+      <Filter>Source Files\world</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\synthesis.cpp">
+      <Filter>Source Files\world</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\codec.cpp">
+      <Filter>Source Files\subfunction</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\world_common.cpp">
+      <Filter>Source Files\subfunction</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\world_fft.cpp">
+      <Filter>Source Files\subfunction</Filter>
+    </ClCompile>
+    <ClCompile Include="..\src\world_matlabfunctions.cpp">
+      <Filter>Source Files\subfunction</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\include\cheaptrick.hpp">
+      <Filter>Header Files\world</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\d4c.hpp">
+      <Filter>Header Files\world</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\harvest.hpp">
+      <Filter>Header Files\world</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\synthesis.hpp">
+      <Filter>Header Files\world</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\codec.hpp">
+      <Filter>Header Files\subfunction</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\macrodefinitions.hpp">
+      <Filter>Header Files\subfunction</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\world_common.hpp">
+      <Filter>Header Files\subfunction</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\world_constantnumbers.hpp">
+      <Filter>Header Files\subfunction</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\world_fft.hpp">
+      <Filter>Header Files\subfunction</Filter>
+    </ClInclude>
+    <ClInclude Include="..\include\world_matlabfunctions.hpp">
+      <Filter>Header Files\subfunction</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
