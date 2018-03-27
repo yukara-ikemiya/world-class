@@ -76,13 +76,13 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <TargetExt>.lib</TargetExt>
-    <IncludePath>C:\code\my_project\cpp\WorldClass\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)\..\include;$(IncludePath)</IncludePath>
     <OutDir>build</OutDir>
     <IntDir>temp\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <TargetExt>.lib</TargetExt>
-    <IncludePath>C:\code\my_project\cpp\WorldClass\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)\..\include;$(IncludePath)</IncludePath>
     <OutDir>build</OutDir>
     <IntDir>temp\$(Platform)\$(Configuration)\</IntDir>
   </PropertyGroup>

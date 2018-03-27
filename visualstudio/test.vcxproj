@@ -71,13 +71,13 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>bin</OutDir>
     <IntDir>temp\$(Platform)\$(Configuration)\</IntDir>
-    <IncludePath>C:\code\my_project\cpp\WorldClass\include;C:\code\my_project\cpp\WorldClass\tools;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)\..\include;$(ProjectDir)\..\tools;$(IncludePath)</IncludePath>
     <LibraryPath>build;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>bin</OutDir>
     <IntDir>temp\$(Platform)\$(Configuration)\</IntDir>
-    <IncludePath>C:\code\my_project\cpp\WorldClass\include;C:\code\my_project\cpp\WorldClass\tools;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)\..\include;$(ProjectDir)\..\tools;$(IncludePath)</IncludePath>
     <LibraryPath>build;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">

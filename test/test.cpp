@@ -279,15 +279,16 @@ void DestroyMemory(WorldParameters *world_parameters) {
 
 //-----------------------------------------------------------------------------
 // Test program.
-// test.exe input.wav outout.wav f0 spec flag
-// input.wav  : argv[1] Input file
-// output.wav : argv[2] Output file
+// test.exe input.wav outout f0 spec flag
+// input.wav  : argv[1] Input file path
+// output	  : argv[2] Output file name
 // f0         : argv[3] F0 scaling (a positive number)
 // spec       : argv[4] Formant shift (a positive number)
 //-----------------------------------------------------------------------------
 int main(int argc, char *argv[]) {
 	if (argc != 2 && argc != 3 && argc != 4 && argc != 5) {
-		cout << "Usage : ./test [input wav path] [output wav path]" << endl;
+		cout << "Usage : ./test [input wav path] [output wav name]" << endl;
+		cout << "Example: ./test ./aiueo.wav output" << endl;
 		return -2;
 	}
 
@@ -365,7 +366,8 @@ int main(int argc, char *argv[]) {
 	
 	// Synthesis 1 (conventional synthesis)
 	WaveformSynthesis1(&world_parameters, fs, y_length, y);
-	sprintf(filename, "01%s", argv[2]);
+	if (argc == 2) { sprintf(filename, "output_1.wav", argv[2]); }
+	else { sprintf(filename, "%s_1.wav", argv[2]); }
 	wavwrite(y, y_length, fs, 16, filename);
 
 	double synt_sum_1 = 0;

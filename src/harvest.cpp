@@ -510,7 +510,7 @@ void Harvest::mergeF0(const double * const *multi_channel_f0, int *boundary_list
 	int n = 0;
 	generate(order, order + number_of_channels, [&]{ return n++; });
 	sort(order, order + number_of_channels,
-		 [&](int i1, int i2) { return boundary_list[i1 * 2] <= boundary_list[i2 * 2]; } );
+		 [&](int i1, int i2) { return boundary_list[i1 * 2] < boundary_list[i2 * 2]; } );
 
 	copy(multi_channel_f0[0], multi_channel_f0[0] + f0_length, merged_f0);
 
