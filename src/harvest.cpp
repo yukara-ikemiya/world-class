@@ -119,6 +119,44 @@ Harvest::~Harvest()
 	if (option_.use_cos_table) { delete[] cos_table_; }
 }
 
+void Harvest::compute(const double* x, const int x_length, double *temporal_positions, double *f0)
+{
+	if (option_.frame_period == 1.0) {
+		generalBody(x, x_length, 1,
+					option_.channels_in_octave, temporal_positions, f0);
+		return;
+	}
+
+	int basic_frame_period = 1;
+	int basic_f0_length = getSamples(fs_, x_length, basic_frame_period);
+	double *basic_f0 = new double[basic_f0_length];
+	double *basic_temporal_positions = new double[basic_f0_length];
+  
+	generalBody(x, x_length, basic_frame_period,
+				option_.channels_in_octave, basic_temporal_positions, basic_f0);
+
+	int f0_length = getSamples(fs_, x_length, option_.frame_period);
+	for (int i = 0; i < f0_length; ++i) {
+		temporal_positions[i] = i * option_.frame_period / 1000.0;
+		f0[i] = basic_f0[MyMinInt(basic_f0_length - 1,
+								  matlab_round(temporal_positions[i] * 1000.0))];
+	}
+
+	delete[] basic_f0;
+	delete[] basic_temporal_positions;
+}
+
+int Harvest::getSamples(const int fs, const int x_length, const double frame_period)
+{
+	return static_cast<int>(1000.0 * x_length / fs / frame_period) + 1;
+}
+
+int Harvest::getSamples(const int fs, const int x_length)
+{
+	return static_cast<int>(1000.0 * x_length / fs / option_.frame_period) + 1;
+}
+
+
 void Harvest::prepareFFTs()
 {
 	int half_window_length = static_cast<int>(1.5 * actual_fs_ / option_.f0_ceil + 1.0);
@@ -167,44 +205,6 @@ void Harvest::get_cos_table()
 	for (int ii = 0; ii < num_cos_div_; ii++) {
 		cos_table_[ii + num_cos_div_ * 3 + 1] = cos_table_[num_cos_div_ - 1 - ii];
 	}
-}
-
-
-int Harvest::getSamples(const int fs, const int x_length, const double frame_period)
-{
-	return static_cast<int>(1000.0 * x_length / fs / frame_period) + 1;
-}
-
-int Harvest::getSamples(const int fs, const int x_length)
-{
-	return static_cast<int>(1000.0 * x_length / fs / option_.frame_period) + 1;
-}
-
-void Harvest::compute(const double* x, const int x_length, double *temporal_positions, double *f0)
-{
-	if (option_.frame_period == 1.0) {
-		generalBody(x, x_length, 1,
-					option_.channels_in_octave, temporal_positions, f0);
-		return;
-	}
-
-	int basic_frame_period = 1;
-	int basic_f0_length = getSamples(fs_, x_length, basic_frame_period);
-	double *basic_f0 = new double[basic_f0_length];
-	double *basic_temporal_positions = new double[basic_f0_length];
-  
-	generalBody(x, x_length, basic_frame_period,
-				option_.channels_in_octave, basic_temporal_positions, basic_f0);
-
-	int f0_length = getSamples(fs_, x_length, option_.frame_period);
-	for (int i = 0; i < f0_length; ++i) {
-		temporal_positions[i] = i * option_.frame_period / 1000.0;
-		f0[i] = basic_f0[MyMinInt(basic_f0_length - 1,
-								  matlab_round(temporal_positions[i] * 1000.0))];
-	}
-
-	delete[] basic_f0;
-	delete[] basic_temporal_positions;
 }
 
 //-----------------------------------------------------------------------------
