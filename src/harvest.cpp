@@ -575,8 +575,10 @@ void Harvest::fixStep3(const double *f0_step2, const double allowed_range, doubl
 		extend(multi_channel_f0, number_of_boundaries / 2, f0_length_,
 			   boundary_list, f0_candidates_, number_of_candidates_, allowed_range);
 
-	mergeF0(multi_channel_f0, boundary_list, number_of_channels, f0_length_,
-			f0_candidates_, f0_candidates_score_, number_of_candidates_, f0_step3);
+	if (number_of_channels != 0) {
+    mergeF0(multi_channel_f0, boundary_list, number_of_channels, f0_length_,
+            f0_candidates_, f0_candidates_score_, number_of_candidates_, f0_step3);
+  }
 
 	for (int i = 0; i < number_of_boundaries / 2; ++i)
     { delete[] multi_channel_f0[i]; }
@@ -828,7 +830,7 @@ void Harvest::getSpectra(const double *x, const int x_length, const int fft_size
 	fft_execute(forward_real_fft.forward_fft);
 	for (int i = 0; i <= fft_size / 2; ++i) {
 		main_spectrum[i][0] = spectrum[i][0];
-		main_spectrum[i][1] = -spectrum[i][1];
+		main_spectrum[i][1] = spectrum[i][1];
 	}
 
 	copy(diff_window, diff_window + base_time_length, waveform);
@@ -837,7 +839,7 @@ void Harvest::getSpectra(const double *x, const int x_length, const int fft_size
 	fft_execute(forward_real_fft.forward_fft);
 	for (int i = 0; i <= fft_size / 2; ++i) {
 		diff_spectrum[i][0] = spectrum[i][0];
-		diff_spectrum[i][1] = -spectrum[i][1];
+		diff_spectrum[i][1] = spectrum[i][1];
 	}
 }
 
@@ -1397,10 +1399,9 @@ void Harvest::generalBody(const double *x, const int x_length,
 	}
 
 	// normalization
-	y_length_ = (1 + static_cast<int>(x_length_ / decimation_ratio_));
-	int fft_size =
-		GetSuitableFFTSize(y_length_ +
-						   (4 * static_cast<int>(1.0 + actual_fs_ / boundary_f0_list[0] / 2.0)));
+	y_length_ = static_cast<int>(ceil(static_cast<double>(x_length_) / decimation_ratio_));
+	int fft_size = GetSuitableFFTSize(y_length_ + 5 +
+      2 * static_cast<int>(2.0 * actual_fs_ / boundary_f0_list[0]));
   
 	// Calculation of the spectrum used for the f0 estimation
 	y_ = new double[fft_size](); // init
@@ -1416,7 +1417,7 @@ void Harvest::generalBody(const double *x, const int x_length,
 	}
 
 	int overlap_parameter = 7;
-	int max_candidates = matlab_round(number_of_channels / 10) * overlap_parameter;
+	int max_candidates = matlab_round(number_of_channels / 10.0) * overlap_parameter;
   
 	f0_candidates_ = new double *[f0_length_];
 	f0_candidates_score_ = new double *[f0_length_];

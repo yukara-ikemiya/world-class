@@ -451,8 +451,8 @@ void Synthesis::getSpectrumWithFractionalTimeShift(
 		re2 = cos(coefficient * ii);
 		im2 = sqrt(1.0 - re2 * re2);  // sin(pshift)
 
-		tmp_sp[0] = re * re2 - im * im2;
-		tmp_sp[1] = re * im2 + im * re2;
+		tmp_sp[0] = re * re2 + im * im2;
+		tmp_sp[1] = im * re2 - re * im2;
 	}
 }
 
